@@ -42,6 +42,8 @@ type BackendGenerationTaskOptions = {
     metadata?: Record<string, unknown>;
     onTaskUpdate?: (task: GenerationTask) => void;
     onTextDelta?: (text: string) => void;
+    streamText?: boolean;
+    enableThinking?: boolean;
     localIdempotencyKey?: string;
     localResumeOnly?: boolean;
     clientOperationId?: string;
@@ -90,6 +92,9 @@ export async function runBackendGenerationTask(
         signal,
         metadata,
         onTaskUpdate,
+        onTextDelta,
+        streamText,
+        enableThinking,
         localIdempotencyKey,
         localResumeOnly,
         clientOperationId,
@@ -104,14 +109,14 @@ export async function runBackendGenerationTask(
         await dependencies.ensureLocalDreaminaReady?.(signal);
         throwIfAborted(signal);
         return await runLocalDreaminaGeneration(
-            { projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, mask, signal, metadata, onTaskUpdate, localIdempotencyKey, localResumeOnly, clientOperationId, retryOf, attemptGroupId },
+            { projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, mask, signal, metadata, onTaskUpdate, onTextDelta, streamText, enableThinking, localIdempotencyKey, localResumeOnly, clientOperationId, retryOf, attemptGroupId },
             dependencies,
         );
     }
     assertBackendRuntimeConfigured(config, mode);
     const prepared = await prepareGenerationReferences({ referenceImages, referenceVideos, referenceAudios, mask });
     throwIfAborted(signal);
-    return createAndWaitGenerationTask({ projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, signal, metadata, onTaskUpdate }, prepared, dependencies);
+    return createAndWaitGenerationTask({ projectId, mode, prompt, config, referenceImages, referenceVideos, referenceAudios, textHistory, signal, metadata, onTaskUpdate, onTextDelta, streamText, enableThinking }, prepared, dependencies);
 }
 
 // 分镜等后台生产流程只需要可靠提交任务；任务状态与产物由项目工作区轮询和
@@ -237,6 +242,7 @@ async function runLocalDreaminaGeneration(options: BackendGenerationTaskOptions,
     try {
         const references = await localGenerationReferences([...(options.referenceImages ?? []), ...(options.mask ? [options.mask] : [])], options.referenceVideos ?? [], options.referenceAudios ?? []);
         const resolution = options.mode === "video" ? options.config.vquality : options.config.quality;
+        const videoOperation = localDreaminaVideoOperation(options);
         const result = await dependencies.runLocal(
             {
                 model: options.config.model as `local:dreamina-cli:${string}`,
@@ -248,6 +254,7 @@ async function runLocalDreaminaGeneration(options: BackendGenerationTaskOptions,
                     ...(options.mode === "video" ? { duration: Number(options.config.videoSeconds) } : { count: Number(options.config.count) }),
                 },
                 references,
+                ...(videoOperation ? { videoOperation } : {}),
                 resumeOnly: options.localResumeOnly,
                 idempotencyKey: runtimeId,
                 clientOperationId,
@@ -298,6 +305,14 @@ function generationOperation(options: BackendGenerationTaskOptions) {
         audioCount: options.referenceAudios?.length ?? 0,
         characterCount: 0,
     }, options.metadata?.videoEditOperation as string | undefined);
+}
+
+function localDreaminaVideoOperation(options: BackendGenerationTaskOptions): LocalDreaminaGenerationInput["videoOperation"] {
+    if (options.mode !== "video") return undefined;
+    const operation = generationOperation(options);
+    return ["text_to_video", "image_to_video", "reference_to_video", "audio_to_video", "multi_frame_to_video"].includes(operation)
+        ? operation as LocalDreaminaGenerationInput["videoOperation"]
+        : undefined;
 }
 
 export function isGenerationTaskCancelled(error: unknown, signal?: AbortSignal) {
@@ -439,6 +454,7 @@ async function createBackendGenerationTask(options: BackendGenerationTaskOptions
             config: backendProviderConfig(config, mode),
             capabilityOptions: logicalModelId ? logicalCapabilityOptions(config, mode) : undefined,
             textHistory: options.textHistory,
+            ...(mode === "text" ? { textOptions: { stream: options.streamText !== false, thinking: options.enableThinking === true } } : {}),
             referenceImages: prepared.referenceImages,
             referenceVideos: prepared.referenceVideos,
             referenceAudios: prepared.referenceAudios,
