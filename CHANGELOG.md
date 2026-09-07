@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.2.6-yc.1
+
+- 建立影策 fork 的生产发布链路，部署脚本、GHCR 镜像和 Host Updater 统一使用 `like95395/open-ai-canvas`，生产环境支持固定 Release 版本更新与失败回退。
+- 新增每周上游同步 PR，自动合并 `ddcat-ai/open-ai-canvas` 的 `main` 更新并运行完整质量检查；发生冲突时在 Actions 摘要列出冲突文件。
+- 版本镜像只在标签或人工触发时发布，发布前强制执行后端、Web、浏览器 P0 和支付插件检查，并支持注入 tldraw 生产授权。
+- 修复素材同步回归断言与 Chrome P0 验收的确定性启动依赖，补齐站点 favicon。
 - 修复微信支付与支付宝插件被宿主平台二进制污染的问题，按 Docker 目标平台确定性生成并重打包 Linux amd64/arm64 provider，增加内容寻址的原子运行时缓存、可执行文件诊断和 CI 架构冒烟校验。
 
 ## v1.2.5

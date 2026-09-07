@@ -2,15 +2,18 @@
 
 set -Eeuo pipefail
 
+REPOSITORY="${REPOSITORY:-like95395/open-ai-canvas}"
 REPOSITORY_REF="${REPOSITORY_REF:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/open-ai-canvas}"
 CANVAS_HTTP_PORT="${CANVAS_HTTP_PORT:-3000}"
 REQUESTED_IMAGE_TAG="${CANVAS_IMAGE_TAG:-}"
 CANVAS_IMAGE_TAG="${REQUESTED_IMAGE_TAG:-latest}"
 CANVAS_IMAGE_TAG="${CANVAS_IMAGE_TAG#v}"
+REPOSITORY_OWNER="${REPOSITORY%%/*}"
+CANVAS_IMAGE_REGISTRY="ghcr.io/${REPOSITORY_OWNER}"
 COMPOSE_FILE="docker-compose.deploy.yml"
-COMPOSE_URL="${COMPOSE_URL:-https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/${REPOSITORY_REF}/${COMPOSE_FILE}}"
-UPDATER_INSTALL_URL="${UPDATER_INSTALL_URL:-https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/${REPOSITORY_REF}/scripts/install-host-updater.sh}"
+COMPOSE_URL="${COMPOSE_URL:-https://raw.githubusercontent.com/${REPOSITORY}/${REPOSITORY_REF}/${COMPOSE_FILE}}"
+UPDATER_INSTALL_URL="${UPDATER_INSTALL_URL:-https://raw.githubusercontent.com/${REPOSITORY}/${REPOSITORY_REF}/scripts/install-host-updater.sh}"
 
 step() {
     printf '\n==> %s\n' "$1"
@@ -29,6 +32,22 @@ require_root() {
     [[ "$CANVAS_HTTP_PORT" =~ ^[0-9]+$ ]] || fail "CANVAS_HTTP_PORT 必须是 1 到 65535 的数字"
     ((CANVAS_HTTP_PORT >= 1 && CANVAS_HTTP_PORT <= 65535)) || fail "CANVAS_HTTP_PORT 必须是 1 到 65535 的数字"
     [[ "$CANVAS_IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "CANVAS_IMAGE_TAG 不是有效的 Docker 镜像标签"
+    [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "REPOSITORY 必须使用 owner/repository 格式"
+}
+
+upsert_env_value() {
+    local key="$1"
+    local value="$2"
+    local temporary_env
+    temporary_env="$(mktemp "${INSTALL_DIR}/.env.XXXXXX")"
+    awk -v key="$key" -v value="$value" '
+        BEGIN { updated=0 }
+        $0 ~ ("^" key "=") { print key "=" value; updated=1; next }
+        { print }
+        END { if (!updated) print key "=" value }
+    ' .env > "$temporary_env"
+    chmod --reference=.env "$temporary_env"
+    mv "$temporary_env" .env
 }
 
 install_packages() {
@@ -95,20 +114,12 @@ prepare_environment() {
         local configured_image_tag
         configured_image_tag="$(sed -n 's/^CANVAS_IMAGE_TAG=//p' .env | tail -n 1)"
         if [[ -n "$REQUESTED_IMAGE_TAG" ]]; then
-            local temporary_env
-            temporary_env="$(mktemp "${INSTALL_DIR}/.env.XXXXXX")"
-            awk -v image_tag="$CANVAS_IMAGE_TAG" '
-                BEGIN { updated=0 }
-                /^CANVAS_IMAGE_TAG=/ { print "CANVAS_IMAGE_TAG=" image_tag; updated=1; next }
-                { print }
-                END { if (!updated) print "CANVAS_IMAGE_TAG=" image_tag }
-            ' .env > "$temporary_env"
-            chmod --reference=.env "$temporary_env"
-            mv "$temporary_env" .env
+            upsert_env_value CANVAS_IMAGE_TAG "$CANVAS_IMAGE_TAG"
         elif [[ -n "$configured_image_tag" ]]; then
             [[ "$configured_image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail ".env 中的 CANVAS_IMAGE_TAG 无效"
             CANVAS_IMAGE_TAG="${configured_image_tag#v}"
         fi
+        upsert_env_value CANVAS_IMAGE_REGISTRY "$CANVAS_IMAGE_REGISTRY"
         return
     fi
 
@@ -122,6 +133,7 @@ POSTGRES_USER=open_ai_canvas
 POSTGRES_PASSWORD=${database_password}
 DATABASE_URL=postgresql://open_ai_canvas:${database_password}@postgres:5432/open_ai_canvas?sslmode=disable
 CANVAS_HTTP_PORT=${CANVAS_HTTP_PORT}
+CANVAS_IMAGE_REGISTRY=${CANVAS_IMAGE_REGISTRY}
 CANVAS_IMAGE_TAG=${CANVAS_IMAGE_TAG}
 CANVAS_REGISTRATION_ENABLED=false
 CANVAS_ALLOW_PRIVATE_UPSTREAMS=false
@@ -147,7 +159,7 @@ install_host_updater() {
     local installer
     installer="$(mktemp)"
     curl -fsSL "$UPDATER_INSTALL_URL" -o "$installer"
-    INSTALL_DIR="$INSTALL_DIR" bash "$installer"
+    INSTALL_DIR="$INSTALL_DIR" REPOSITORY="$REPOSITORY" bash "$installer"
     rm -f "$installer"
 }
 

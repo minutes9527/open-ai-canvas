@@ -7,7 +7,8 @@
 <p align="center">让一个故事，从文字走向银幕</p>
 
 <p align="center">
-  <a href="https://github.com/ddcat-ai/open-ai-canvas">GitHub</a> ·
+  <a href="https://github.com/like95395/open-ai-canvas">GitHub</a> ·
+  <a href="https://github.com/ddcat-ai/open-ai-canvas">上游项目</a> ·
   <a href="docs/content/docs/overview/features.mdx">功能</a> ·
   <a href="docs/content/docs/overview/quick-start.mdx">文档</a> ·
   <a href="SECURITY.md">安全策略</a>
@@ -112,7 +113,7 @@ Codex 插件（`plugins/yingce/`）负责把 MCP 接入 Codex App。
 ### 宿主机启动
 
 ```bash
-git clone https://github.com/ddcat-ai/open-ai-canvas.git
+git clone https://github.com/like95395/open-ai-canvas.git
 cd open-ai-canvas
 
 # 开发数据必须使用 Git 忽略的目录，不要直接使用 backend/data
@@ -174,7 +175,7 @@ CANVAS_ALLOWED_PRIVATE_UPSTREAM_HOSTS=192.168.1.10
 适用于 Linux 云服务器。脚本会安装 Docker，拉取源码，生成受保护的 `.env`，构建网页/后端镜像并启动 PostgreSQL、Redis、后端和网页：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-server.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/like95395/open-ai-canvas/main/scripts/install-server.sh | sudo bash
 ```
 
 默认访问 `http://服务器IP:3000`。第一个注册账号会成为管理员；公开注册默认关闭。更新或排查：
@@ -192,20 +193,22 @@ sudo docker compose --env-file .env \
 服务器不需要源码时可使用镜像脚本：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-server-image.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/like95395/open-ai-canvas/main/scripts/install-server-image.sh | sudo bash
 ```
 
-容器包不可匿名拉取时，先通过 `GHCR_USERNAME` 和 `GHCR_TOKEN` 登录 GHCR。生产环境应在 `/opt/open-ai-canvas/.env` 中把 `CANVAS_IMAGE_TAG` 固定为具体 Release（不要使用 `latest`），端口由 `CANVAS_HTTP_PORT` 配置。
+容器包不可匿名拉取时，先通过 `GHCR_USERNAME` 和 `GHCR_TOKEN` 登录 GHCR。生产环境应在 `/opt/open-ai-canvas/.env` 中设置 `CANVAS_IMAGE_REGISTRY=ghcr.io/like95395`，并把 `CANVAS_IMAGE_TAG` 固定为具体 Release（不要使用 `latest`），端口由 `CANVAS_HTTP_PORT` 配置。版本标签会先运行完整质量检查，通过后才发布镜像和 Release；需要 tldraw 生产授权时，在 GitHub Actions 中配置 `VITE_TLDRAW_LICENSE_KEY` 仓库 Secret。
 
 固定版本的 GHCR 部署可安装宿主机在线更新器；安装后管理后台会出现“系统配置 → 系统更新”，更新器会在切换前强制生成并校验 PostgreSQL 与数据目录 ZIP 备份：
 
 ```bash
 cd /opt/open-ai-canvas
-curl -fsSL https://raw.githubusercontent.com/ddcat-ai/open-ai-canvas/main/scripts/install-host-updater.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/like95395/open-ai-canvas/main/scripts/install-host-updater.sh | sudo bash
 sudo docker compose --env-file .env -f docker-compose.deploy.yml up -d --force-recreate backend web --wait
 ```
 
 更新流程、数据库迁移、健康验证和异常回退说明见 [`docs/content/docs/backend/system-update.mdx`](docs/content/docs/backend/system-update.mdx)。
+
+本 fork 每周一上午检查 `ddcat-ai/open-ai-canvas` 的 `main` 分支。发现更新时，GitHub Actions 会更新 `sync/upstream-main`、创建 PR 并在该分支上启动完整质量检查；上游冲突会让任务失败并在运行摘要中列出冲突文件。同步 PR 必须通过 CI 和人工检查后才合并，不会自动部署到生产。
 
 ### 公网必做事项
 

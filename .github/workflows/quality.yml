@@ -5,6 +5,8 @@ on:
   push:
     branches:
       - main
+  workflow_dispatch:
+  workflow_call:
 
 permissions:
   contents: read
@@ -66,7 +68,7 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Check formatting
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || 'origin/main' }}
         run: |
           changed_files=()
           repo_prefix="$(git rev-parse --show-prefix)"

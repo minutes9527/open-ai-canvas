@@ -8,9 +8,10 @@
  */
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { createServer as createHttpServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createServer } from "node:net";
+import { createServer as createNetServer } from "node:net";
 
 const CHROME_CANDIDATES = [
     process.env.CHROME_BIN,
@@ -61,7 +62,7 @@ function resolveChrome() {
 
 function freePort() {
     return new Promise((resolve, reject) => {
-        const server = createServer();
+        const server = createNetServer();
         server.on("error", reject);
         server.listen(0, "127.0.0.1", () => {
             const { port } = server.address();
@@ -72,11 +73,33 @@ function freePort() {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+/** 为前端启动阶段提供确定性的公开外观响应，避免复现台依赖完整后端。 */
+function launchMockApi(port) {
+    const server = createHttpServer((request, response) => {
+        const path = new URL(request.url || "/", `http://${request.headers.host || "127.0.0.1"}`).pathname;
+        if (request.method === "GET" && path === "/api/public/appearance") {
+            response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
+            response.end(JSON.stringify({ code: 0, data: { appearance: {} }, msg: "ok" }));
+            return;
+        }
+        response.writeHead(404, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ code: 404, data: null, msg: `Unhandled E2E API route: ${request.method} ${path}` }));
+    });
+    return new Promise((resolve, reject) => {
+        server.once("error", reject);
+        server.listen(port, "127.0.0.1", () => {
+            server.off("error", reject);
+            resolve(server);
+        });
+    });
+}
+
 /** 启动 Vite DEV，等待 ready 行或 TCP 可连接；超时即抛。 */
-async function launchVite(port) {
+async function launchVite(port, apiPort) {
     const child = spawn("bunx", ["vite", "--host", "127.0.0.1", "--port", String(port), "--strictPort"], {
         cwd: process.cwd(),
         stdio: ["ignore", "pipe", "pipe"],
+        env: { ...process.env, VITE_API_PROXY_TARGET: `http://127.0.0.1:${apiPort}` },
     });
     let log = "";
     child.stdout.on("data", (d) => {
@@ -695,17 +718,22 @@ async function main() {
     console.log(`Chrome binary: ${chromePath}`);
 
     const vitePort = await freePort();
+    const apiPort = await freePort();
     const cdpPort = await freePort();
     const baseUrl = `http://127.0.0.1:${vitePort}`;
     const profileDir = mkdtempSync(join(tmpdir(), "director-p0-e2e-"));
 
+    let mockApi = null;
     let vite = null;
     let chrome = null;
     let cdp = null;
 
     try {
+        console.log(`Starting mock API on http://127.0.0.1:${apiPort} ...`);
+        mockApi = await launchMockApi(apiPort);
+
         console.log(`Starting Vite on ${baseUrl} ...`);
-        vite = await launchVite(vitePort);
+        vite = await launchVite(vitePort, apiPort);
         console.log(`      vite pid=${vite.pid}`);
 
         console.log(`Starting Chrome with CDP on 127.0.0.1:${cdpPort} ...`);
@@ -728,7 +756,7 @@ async function main() {
         } catch {
             /* socket already closed */
         }
-        // 三个清理步骤互不阻塞：任一失败都记为断言失败（最终 exit 1），但不吞掉其余清理。
+        // 各清理步骤互不阻塞：任一失败都记为断言失败（最终 exit 1），但不吞掉其余清理。
         try {
             await stopExact(chrome, "chrome");
         } catch (error) {
@@ -738,6 +766,12 @@ async function main() {
             await stopExact(vite, "vite");
         } catch (error) {
             fail("cleanup: stop vite", String(error?.message || error));
+        }
+        try {
+            mockApi?.closeAllConnections?.();
+            await new Promise((resolve, reject) => mockApi?.close((error) => (error ? reject(error) : resolve())) || resolve());
+        } catch (error) {
+            fail("cleanup: stop mock API", String(error?.message || error));
         }
         try {
             rmSync(profileDir, { recursive: true, force: true });
