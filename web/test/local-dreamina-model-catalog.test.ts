@@ -215,15 +215,7 @@ test("effective config projects an asynchronously arriving Dreamina catalog with
 });
 
 test("Dreamina model selection preserves the canonical local model ID", async () => {
-    const {
-        configuredModelMatchesCapability,
-        defaultConfig,
-        effectiveConfigWithDreamina,
-        modelDisplayName,
-        modelIcon,
-        normalizeModelOptionValue,
-        selectableModelsByCapability,
-    } = await import("../src/stores/use-config-store");
+    const { configuredModelMatchesCapability, defaultConfig, effectiveConfigWithDreamina, modelDisplayName, modelIcon, normalizeModelOptionValue, selectableModelsByCapability } = await import("../src/stores/use-config-store");
     const { configuredModelDisplayName } = await import("../src/lib/model-selection");
     const model = "local:dreamina-cli:5.0";
     const config = effectiveConfigWithDreamina(defaultConfig, "ready", [

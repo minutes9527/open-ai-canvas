@@ -90,8 +90,22 @@ describe("model request pricing", () => {
                 { selector: { quality: "4k" }, billingMode: "fixed_request", unitPriceMicrocredits: 5_000_000 },
             ],
         });
-        for (const [size, price] of [["1024x1024", 2], ["2048x2048", 3], ["2880x2880", 5]] as const) {
-            expect(requestCreditCost({ channelMode: "remote", modelCosts: resolveModelChannel(config, config.model).modelCosts, model: "image-model", capability: "image", config: { ...config, quality: "auto", size }, requirements: { capability: "image", options: { quality: "auto", size } }, count: 1 })).toBe(price);
+        for (const [size, price] of [
+            ["1024x1024", 2],
+            ["2048x2048", 3],
+            ["2880x2880", 5],
+        ] as const) {
+            expect(
+                requestCreditCost({
+                    channelMode: "remote",
+                    modelCosts: resolveModelChannel(config, config.model).modelCosts,
+                    model: "image-model",
+                    capability: "image",
+                    config: { ...config, quality: "auto", size },
+                    requirements: { capability: "image", options: { quality: "auto", size } },
+                    count: 1,
+                }),
+            ).toBe(price);
         }
     });
 
@@ -131,10 +145,13 @@ describe("model request pricing", () => {
     });
 
     test("prefers a matching image specification over the uniform fallback", () => {
-        const config = systemConfig({ capability: "image", tiers: [
-            { selector: {}, billingMode: "fixed_request", unitPriceMicrocredits: 1_000_000 },
-            { selector: { operation: "text_to_image", quality: "2k" }, billingMode: "fixed_request", unitPriceMicrocredits: 2_000_000 },
-        ] });
+        const config = systemConfig({
+            capability: "image",
+            tiers: [
+                { selector: {}, billingMode: "fixed_request", unitPriceMicrocredits: 1_000_000 },
+                { selector: { operation: "text_to_image", quality: "2k" }, billingMode: "fixed_request", unitPriceMicrocredits: 2_000_000 },
+            ],
+        });
         const tiers = resolveModelChannel(config, config.model).modelCosts![0]!.logicalPriceTiers!;
         expect(priceTiersForCurrentSelection(tiers, "image", { ...config, quality: "2k" })[0]?.unitPriceMicrocredits).toBe(2_000_000);
         expect(priceTiersForCurrentSelection(tiers, "image", { ...config, quality: "4k" })[0]?.unitPriceMicrocredits).toBe(1_000_000);

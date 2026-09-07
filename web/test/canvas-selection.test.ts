@@ -1,6 +1,15 @@
 import { describe, expect, test } from "bun:test";
 
-import { applyCanvasSelectionStrategy, canvasSelectionHitsBounds, createCanvasSelectionBounds, createCanvasSelectionSpatialIndexCache, resolveCanvasPointerIntent, resolveCanvasSelectionHitMode, resolveCanvasSelectionPreviewDelta, resolveCanvasSelectionStrategy } from "@/lib/canvas/canvas-selection";
+import {
+    applyCanvasSelectionStrategy,
+    canvasSelectionHitsBounds,
+    createCanvasSelectionBounds,
+    createCanvasSelectionSpatialIndexCache,
+    resolveCanvasPointerIntent,
+    resolveCanvasSelectionHitMode,
+    resolveCanvasSelectionPreviewDelta,
+    resolveCanvasSelectionStrategy,
+} from "@/lib/canvas/canvas-selection";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
 
 describe("canvas selection semantics", () => {
@@ -91,7 +100,7 @@ describe("canvas selection semantics", () => {
         expect(canvasSource).toContain('"canvas-cursor-select"');
         expect(canvasSource).not.toContain('"cursor-crosshair"');
         expect(graphicsSource).toContain('fill: "transparent"');
-        expect(graphicsSource).toContain('dashPattern: [4 / scale, 4 / scale]');
+        expect(graphicsSource).toContain("dashPattern: [4 / scale, 4 / scale]");
         expect(globalStyles).toContain(".canvas-cursor-select");
         expect(globalStyles).not.toContain("filter='drop-shadow");
     });

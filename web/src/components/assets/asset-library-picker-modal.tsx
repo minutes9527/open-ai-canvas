@@ -123,15 +123,45 @@ export function AssetLibraryPickerModal({
     useEffect(() => setRemotePage(1), [category, remoteKeyword, open]);
     const remoteQuery = useQuery({
         queryKey: ["asset-picker", userId, remotePage, remotePageSize, category, remoteKeyword, remoteKind],
-        queryFn: ({ signal }) => loadAssetLibraryPage({ page: remotePage, pageSize: remotePageSize, kind: remoteKind, category: category === "all" || category === "archived" || category === remoteKind ? undefined : category, status: category === "archived" ? "archived" : "active", query: remoteKeyword, signal }),
+        queryFn: ({ signal }) =>
+            loadAssetLibraryPage({
+                page: remotePage,
+                pageSize: remotePageSize,
+                kind: remoteKind,
+                category: category === "all" || category === "archived" || category === remoteKind ? undefined : category,
+                status: category === "archived" ? "archived" : "active",
+                query: remoteKeyword,
+                signal,
+            }),
         enabled: remoteEnabled && open && sessionHydrated,
     });
-    const remoteItems = useMemo<AssetLibraryPickerItem[]>(() => (remoteQuery.data?.assets || []).filter((asset) => asset.kind !== "entity" && asset.kind !== "model").map((asset) => ({
-        id: asset.id, title: asset.title, category: asset.category || "other", archived: asset.status === "archived", asset,
-        kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本", searchText: asset.tags.join(" "),
-        ...(items.find((item) => item.id === asset.id) || { disabledReason: "此素材不适用于当前操作" }),
-    })), [remoteQuery.data, items]);
-    const effectivePagination = remoteEnabled ? { current: remotePage, pageSize: remotePageSize, total: remoteQuery.data?.total || 0, onChange: (page: number, pageSize: number) => { setRemotePage(page); setRemotePageSize(pageSize); } } : pagination;
+    const remoteItems = useMemo<AssetLibraryPickerItem[]>(
+        () =>
+            (remoteQuery.data?.assets || [])
+                .filter((asset) => asset.kind !== "entity" && asset.kind !== "model")
+                .map((asset) => ({
+                    id: asset.id,
+                    title: asset.title,
+                    category: asset.category || "other",
+                    archived: asset.status === "archived",
+                    asset,
+                    kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
+                    searchText: asset.tags.join(" "),
+                    ...(items.find((item) => item.id === asset.id) || { disabledReason: "此素材不适用于当前操作" }),
+                })),
+        [remoteQuery.data, items],
+    );
+    const effectivePagination = remoteEnabled
+        ? {
+              current: remotePage,
+              pageSize: remotePageSize,
+              total: remoteQuery.data?.total || 0,
+              onChange: (page: number, pageSize: number) => {
+                  setRemotePage(page);
+                  setRemotePageSize(pageSize);
+              },
+          }
+        : pagination;
     const uploadInputRef = useRef<HTMLInputElement>(null);
     const initialSelectedIdsRef = useRef(initialSelectedIds);
     const itemsRef = useRef(items);
@@ -149,7 +179,13 @@ export function AssetLibraryPickerModal({
     const archivedItems = useMemo(() => sourceItems.filter((item) => item.archived), [sourceItems]);
     const sourceFolders = source === "plugin" ? folders : [];
     const showCategories = source === "local" || !sourceFolders.length;
-    const normalCategories = useMemo(() => remoteEnabled ? Object.keys(categoryLabels).filter((value) => value !== "archived" && !value.startsWith("external:")) : ["all", ...Array.from(new Set(activeSourceItems.map((item) => item.category || "other"))).filter((value) => value !== "all")], [activeSourceItems, categoryLabels, remoteEnabled]);
+    const normalCategories = useMemo(
+        () =>
+            remoteEnabled
+                ? Object.keys(categoryLabels).filter((value) => value !== "archived" && !value.startsWith("external:"))
+                : ["all", ...Array.from(new Set(activeSourceItems.map((item) => item.category || "other"))).filter((value) => value !== "all")],
+        [activeSourceItems, categoryLabels, remoteEnabled],
+    );
     const archivedCount = archivedItems.length;
     const isRecycleBin = category === "archived";
 
@@ -443,7 +479,11 @@ export function AssetLibraryPickerModal({
                     </nav>
                     <div className="asset-picker-grid-wrap">
                         <div className="asset-picker-grid">
-                            {remoteEnabled && remoteQuery.isError ? <div role="alert">素材读取失败<Button onClick={() => void remoteQuery.refetch()}>重试</Button></div> : loading || (remoteEnabled && remoteQuery.isFetching) ? (
+                            {remoteEnabled && remoteQuery.isError ? (
+                                <div role="alert">
+                                    素材读取失败<Button onClick={() => void remoteQuery.refetch()}>重试</Button>
+                                </div>
+                            ) : loading || (remoteEnabled && remoteQuery.isFetching) ? (
                                 <div className="asset-picker-empty">
                                     <LoaderCircle className="animate-spin" />
                                     <strong>正在读取素材</strong>
@@ -459,7 +499,9 @@ export function AssetLibraryPickerModal({
                                 </div>
                             )}
                         </div>
-                        {effectivePagination ? <PaginationBar alwaysShow current={effectivePagination.current} pageSize={effectivePagination.pageSize} total={effectivePagination.total} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={effectivePagination.onChange} /> : null}
+                        {effectivePagination ? (
+                            <PaginationBar alwaysShow current={effectivePagination.current} pageSize={effectivePagination.pageSize} total={effectivePagination.total} itemLabel="项" pageSizeOptions={[20, 40, 80]} onChange={effectivePagination.onChange} />
+                        ) : null}
                     </div>
                 </div>
                 <footer className={cn("asset-picker-footer", !activeUpload && "is-compact")}>
@@ -487,7 +529,14 @@ export function AssetLibraryPickerModal({
                     <div className="asset-picker-actions">
                         {isRecycleBin ? (
                             <>
-                                <Popconfirm title={remoteEnabled ? "确认删除当前页回收站素材？" : "确认清空回收站？"} description="仅删除当前列表中的素材；仍被引用的素材由服务端拒绝删除。删除不可恢复。" onConfirm={handleEmptyRecycleBin} okText="删除" okButtonProps={{ danger: true }} cancelText="取消">
+                                <Popconfirm
+                                    title={remoteEnabled ? "确认删除当前页回收站素材？" : "确认清空回收站？"}
+                                    description="仅删除当前列表中的素材；仍被引用的素材由服务端拒绝删除。删除不可恢复。"
+                                    onConfirm={handleEmptyRecycleBin}
+                                    okText="删除"
+                                    okButtonProps={{ danger: true }}
+                                    cancelText="取消"
+                                >
                                     <Button type="text" danger disabled={working || !archivedCount}>
                                         {remoteEnabled ? "删除当前页" : "清空回收站"}
                                     </Button>

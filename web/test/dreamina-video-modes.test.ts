@@ -1,14 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { defaultModelCapabilityConfig } from "../src/lib/model-capabilities";
-import {
-    dreaminaVideoModeError,
-    dreaminaVideoModeMaxReferences,
-    dreaminaVideoModeOptions,
-    dreaminaVideoOperation,
-    dreaminaVideoProfileForMode,
-    isLocalDreaminaVideoModel,
-} from "../src/lib/dreamina-video-modes";
+import { dreaminaVideoModeError, dreaminaVideoModeMaxReferences, dreaminaVideoModeOptions, dreaminaVideoOperation, dreaminaVideoProfileForMode, isLocalDreaminaVideoModel } from "../src/lib/dreamina-video-modes";
 
 test("Create exposes the complete Dreamina video mode menu without faking unsupported CLI operations", async () => {
     expect(dreaminaVideoModeOptions.map((option) => option.label)).toEqual(["全能参考", "首尾帧", "智能多帧", "智能编辑", "超长视频"]);

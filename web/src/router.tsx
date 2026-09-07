@@ -61,7 +61,15 @@ function fullScreenDeferred(element: ReactNode) {
 }
 
 function AuthenticatedWorkspaceLayout() {
-    return <RequireAuth>{fullScreenDeferred(<UserLayout><Outlet /></UserLayout>)}</RequireAuth>;
+    return (
+        <RequireAuth>
+            {fullScreenDeferred(
+                <UserLayout>
+                    <Outlet />
+                </UserLayout>,
+            )}
+        </RequireAuth>
+    );
 }
 
 /**
@@ -184,7 +192,14 @@ export const router = createBrowserRouter([
                     { index: true, element: <AnalyticsPage /> },
                     { path: "users", element: <UsersPage /> },
                     { path: "channels", element: <ChannelsPage /> },
-                    { path: "models", element: <RequireFeature feature="frontendModelsEnabled"><LogicalModelsPage /></RequireFeature> },
+                    {
+                        path: "models",
+                        element: (
+                            <RequireFeature feature="frontendModelsEnabled">
+                                <LogicalModelsPage />
+                            </RequireFeature>
+                        ),
+                    },
                     { path: "plugins", element: <AdminPluginsPage /> },
                     { path: "payments", element: <AdminPaymentsPage /> },
                     { path: "prompt-templates", element: <StoryboardPromptsPage /> },

@@ -14,7 +14,18 @@ import { ASSET_STORE_KEY, flushAssetStorePersistence, useAssetStore, type Asset,
 import { withGenerationAssetStorageLock } from "../src/services/generation-asset-repository";
 import { CANVAS_STORE_KEY, flushCanvasStorePersistence, useCanvasStore, withCanvasStorePersistenceLock, withCanvasStorePersistenceSuppressed, type CanvasProject } from "../src/stores/canvas/use-canvas-store";
 import { CanvasNodeType, type CanvasAssistantSession, type CanvasConnection, type CanvasNodeData } from "../src/types/canvas";
-import { deleteAssetWithRemoteSync, deleteCanvasProjectsWithRemoteSync, initializeRemoteUserDataSession, loadCanvasProjectForEditing, loadAssetLibraryPage, installRemoteUserDataAutoSync, resetRemoteUserDataSync, saveRemoteUserDataNow, syncRemoteUserData, withRemoteUserDataSyncExclusive } from "../src/services/user-data-sync";
+import {
+    deleteAssetWithRemoteSync,
+    deleteCanvasProjectsWithRemoteSync,
+    initializeRemoteUserDataSession,
+    loadCanvasProjectForEditing,
+    loadAssetLibraryPage,
+    installRemoteUserDataAutoSync,
+    resetRemoteUserDataSync,
+    saveRemoteUserDataNow,
+    syncRemoteUserData,
+    withRemoteUserDataSyncExclusive,
+} from "../src/services/user-data-sync";
 import { apiClient } from "../src/services/api/request";
 import { useUserStore } from "../src/stores/use-user-store";
 import { CANVAS_HISTORY_STORE_KEY, useCanvasHistoryStore } from "../src/stores/canvas/use-canvas-history-store";
@@ -4445,7 +4456,9 @@ test("an asset page arriving after account switch cannot populate the new accoun
     const previousAdapter = apiClient.defaults.adapter;
     const previousAssets = useAssetStore.getState().assets;
     let release!: () => void;
-    const waiting = new Promise<void>((resolve) => { release = resolve; });
+    const waiting = new Promise<void>((resolve) => {
+        release = resolve;
+    });
     apiClient.defaults.adapter = async (config) => {
         await waiting;
         return { data: { code: 0, data: { assets: [], page: 1, pageSize: 40, total: 0, hasMore: false }, msg: "" }, status: 200, statusText: "OK", headers: {}, config };

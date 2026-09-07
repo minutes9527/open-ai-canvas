@@ -24,8 +24,8 @@
                 height: 42px;
                 margin: -21px 0 0 -21px;
                 background: rgba(255, 255, 255, 0.84);
-                mask: url('/logo.svg') center / contain no-repeat;
-                -webkit-mask: url('/logo.svg') center / contain no-repeat;
+                mask: url("/logo.svg") center / contain no-repeat;
+                -webkit-mask: url("/logo.svg") center / contain no-repeat;
                 animation: appearance-bootstrap-logo 1.8s ease-in-out infinite;
             }
             #root:empty::after {
@@ -41,8 +41,22 @@
                 border-radius: 999px;
                 animation: appearance-bootstrap-orbit 2.8s linear infinite;
             }
-            @keyframes appearance-bootstrap-logo { 0%, 100% { opacity: .62; transform: scale(.94); } 50% { opacity: 1; transform: scale(1.04); } }
-            @keyframes appearance-bootstrap-orbit { to { transform: rotate(360deg); } }
+            @keyframes appearance-bootstrap-logo {
+                0%,
+                100% {
+                    opacity: 0.62;
+                    transform: scale(0.94);
+                }
+                50% {
+                    opacity: 1;
+                    transform: scale(1.04);
+                }
+            }
+            @keyframes appearance-bootstrap-orbit {
+                to {
+                    transform: rotate(360deg);
+                }
+            }
             @media (prefers-reduced-motion: reduce) {
                 #root:empty::before,
                 #root:empty::after {

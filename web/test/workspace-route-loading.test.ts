@@ -90,7 +90,7 @@ describe("workspace route loading", () => {
         expect(projectDetail).toContain('import("@/services/user-data-sync")');
         expect(projectDetail).not.toContain('import { createCanvasProjectWithRemoteSync } from "@/services/user-data-sync"');
         expect(workflow).not.toContain('from "@/lib/video-poster"');
-        expect(workflow).toContain('if (playing) return <video');
+        expect(workflow).toContain("if (playing) return <video");
     });
 
     test("uses a quiet workspace skeleton for initial hydration", () => {

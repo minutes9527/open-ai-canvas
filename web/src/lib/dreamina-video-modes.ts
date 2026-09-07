@@ -3,19 +3,21 @@ import type { VideoCapabilityConfig } from "@/lib/model-capabilities";
 export type DreaminaVideoMode = "all_reference" | "first_last_frames" | "smart_multi_frame";
 export type DreaminaVideoComingSoonMode = "smart_edit" | "long_video";
 
-type DreaminaVideoModeOption = {
-    value: DreaminaVideoMode;
-    label: string;
-    description: string;
-    available: true;
-    beta?: false;
-} | {
-    value: DreaminaVideoComingSoonMode;
-    label: string;
-    description: string;
-    available: false;
-    beta: true;
-};
+type DreaminaVideoModeOption =
+    | {
+          value: DreaminaVideoMode;
+          label: string;
+          description: string;
+          available: true;
+          beta?: false;
+      }
+    | {
+          value: DreaminaVideoComingSoonMode;
+          label: string;
+          description: string;
+          available: false;
+          beta: true;
+      };
 
 export type DreaminaVideoReferenceCounts = {
     image: number;

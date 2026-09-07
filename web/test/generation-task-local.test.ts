@@ -300,8 +300,12 @@ test("Create forwards its explicit Dreamina smart multi-frame choice to the loca
             metadata: { videoEditOperation: "multi_frame_to_video" },
         },
         {
-            createTask: async () => { throw new Error("must not post /tasks"); },
-            waitTask: async () => { throw new Error("must not wait Backend task"); },
+            createTask: async () => {
+                throw new Error("must not post /tasks");
+            },
+            waitTask: async () => {
+                throw new Error("must not wait Backend task");
+            },
             runLocal: async (input) => {
                 localInput = input;
                 return { mode: "video", video: { dataUrl: "data:video/mp4;base64,AAAA", mimeType: "video/mp4", bytes: 3 } };

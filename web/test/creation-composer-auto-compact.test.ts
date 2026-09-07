@@ -27,8 +27,8 @@ describe("creation composer auto compact", () => {
         expect(source).toContain("onKeyDownCapture={expandComposer}");
         expect(source).toContain("props.overlayOpen || promptOptimizerOpen || previewUrl || trackState.isDragging");
         expect(source).toContain("root.contains(document.activeElement)");
-        expect(source).not.toContain("[aria-pressed=\"true\"]");
-        expect(source).toContain("props.variant !== \"thread\"");
+        expect(source).not.toContain('[aria-pressed="true"]');
+        expect(source).toContain('props.variant !== "thread"');
     });
 
     test("animates height without removing composer controls", () => {
