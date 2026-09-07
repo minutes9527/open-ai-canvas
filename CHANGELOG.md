@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v1.2.6-yc.2
+
+- 修复 GHCR 一键安装脚本仍默认拉取未发布的 `latest` 标签；新部署会从 fork 的 `VERSION` 读取固定 Release，已有 `latest` 配置也会自动切换到当前版本并安装 Host Updater。
+
 ## v1.2.6-yc.1
 
 - 建立影策 fork 的生产发布链路，部署脚本、GHCR 镜像和 Host Updater 统一使用 `like95395/open-ai-canvas`，生产环境支持固定 Release 版本更新与失败回退。

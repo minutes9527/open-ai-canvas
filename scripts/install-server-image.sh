@@ -7,12 +7,12 @@ REPOSITORY_REF="${REPOSITORY_REF:-main}"
 INSTALL_DIR="${INSTALL_DIR:-/opt/open-ai-canvas}"
 CANVAS_HTTP_PORT="${CANVAS_HTTP_PORT:-3000}"
 REQUESTED_IMAGE_TAG="${CANVAS_IMAGE_TAG:-}"
-CANVAS_IMAGE_TAG="${REQUESTED_IMAGE_TAG:-latest}"
-CANVAS_IMAGE_TAG="${CANVAS_IMAGE_TAG#v}"
+CANVAS_IMAGE_TAG="${REQUESTED_IMAGE_TAG#v}"
 REPOSITORY_OWNER="${REPOSITORY%%/*}"
 CANVAS_IMAGE_REGISTRY="ghcr.io/${REPOSITORY_OWNER}"
 COMPOSE_FILE="docker-compose.deploy.yml"
 COMPOSE_URL="${COMPOSE_URL:-https://raw.githubusercontent.com/${REPOSITORY}/${REPOSITORY_REF}/${COMPOSE_FILE}}"
+VERSION_URL="${VERSION_URL:-https://raw.githubusercontent.com/${REPOSITORY}/${REPOSITORY_REF}/VERSION}"
 UPDATER_INSTALL_URL="${UPDATER_INSTALL_URL:-https://raw.githubusercontent.com/${REPOSITORY}/${REPOSITORY_REF}/scripts/install-host-updater.sh}"
 
 step() {
@@ -31,8 +31,23 @@ require_root() {
     [[ "$(uname -s)" == "Linux" ]] || fail "一键部署脚本仅支持 Linux 服务器"
     [[ "$CANVAS_HTTP_PORT" =~ ^[0-9]+$ ]] || fail "CANVAS_HTTP_PORT 必须是 1 到 65535 的数字"
     ((CANVAS_HTTP_PORT >= 1 && CANVAS_HTTP_PORT <= 65535)) || fail "CANVAS_HTTP_PORT 必须是 1 到 65535 的数字"
-    [[ "$CANVAS_IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "CANVAS_IMAGE_TAG 不是有效的 Docker 镜像标签"
+    if [[ -n "$CANVAS_IMAGE_TAG" ]]; then
+        [[ "$CANVAS_IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "CANVAS_IMAGE_TAG 不是有效的 Docker 镜像标签"
+        [[ "$CANVAS_IMAGE_TAG" != "latest" ]] || fail "影策生产镜像不发布 latest，请使用具体 Release 版本"
+    fi
     [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail "REPOSITORY 必须使用 owner/repository 格式"
+}
+
+resolve_image_tag() {
+    if [[ -n "$CANVAS_IMAGE_TAG" ]]; then
+        return
+    fi
+    step "读取影策当前发布版本"
+    local repository_version
+    repository_version="$(curl -fsSL "$VERSION_URL" | tr -d '\r\n')"
+    CANVAS_IMAGE_TAG="${repository_version#v}"
+    [[ "$CANVAS_IMAGE_TAG" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail "仓库 VERSION 不是有效的 Docker 镜像标签"
+    [[ "$CANVAS_IMAGE_TAG" != "latest" ]] || fail "仓库 VERSION 必须固定到具体 Release 版本"
 }
 
 upsert_env_value() {
@@ -115,9 +130,11 @@ prepare_environment() {
         configured_image_tag="$(sed -n 's/^CANVAS_IMAGE_TAG=//p' .env | tail -n 1)"
         if [[ -n "$REQUESTED_IMAGE_TAG" ]]; then
             upsert_env_value CANVAS_IMAGE_TAG "$CANVAS_IMAGE_TAG"
-        elif [[ -n "$configured_image_tag" ]]; then
+        elif [[ -n "$configured_image_tag" && "$configured_image_tag" != "latest" ]]; then
             [[ "$configured_image_tag" =~ ^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$ ]] || fail ".env 中的 CANVAS_IMAGE_TAG 无效"
             CANVAS_IMAGE_TAG="${configured_image_tag#v}"
+        else
+            upsert_env_value CANVAS_IMAGE_TAG "$CANVAS_IMAGE_TAG"
         fi
         upsert_env_value CANVAS_IMAGE_REGISTRY "$CANVAS_IMAGE_REGISTRY"
         return
@@ -151,10 +168,6 @@ download_compose() {
 }
 
 install_host_updater() {
-    if [[ "$CANVAS_IMAGE_TAG" == "latest" ]]; then
-        printf '\n提示：CANVAS_IMAGE_TAG=latest，已跳过在线更新器安装。固定到具体发布版本后可再次运行本脚本。\n'
-        return
-    fi
     step "安装宿主机在线更新服务"
     local installer
     installer="$(mktemp)"
@@ -187,6 +200,7 @@ main() {
     require_root
     step "安装服务器基础工具"
     install_packages
+    resolve_image_tag
     install_docker
     login_ghcr
     prepare_environment
