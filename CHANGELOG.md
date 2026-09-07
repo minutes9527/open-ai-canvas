@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v1.2.6-yc.3
+
+- 重新构建生产 Web 镜像并注入 tldraw SDK 许可证，确保 HTTPS 非本地域名下的画布编辑器可以正常运行。
+
 ## v1.2.6-yc.2
 
 - 修复 GHCR 一键安装脚本仍默认拉取未发布的 `latest` 标签；新部署会从 fork 的 `VERSION` 读取固定 Release，已有 `latest` 配置也会自动切换到当前版本并安装 Host Updater。
