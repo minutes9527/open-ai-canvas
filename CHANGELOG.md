@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.2.7-yc.1
+
+- 同步 `ddcat-ai/open-ai-canvas` v1.2.7，加入渠道模型批量操作、图片尺寸预设、系统性能面板，以及素材、插件和创作界面的上游修复。
+- 保留影策 fork 的 Gemini Web2API 图片协议、ChatGPT2API 接入、固定版本镜像发布、Host Updater 和上游同步 PR 流程。
+- 解决创作页、画布工具栏、模型选择和样式文件的合并冲突，并通过后端、Web、支付插件与浏览器端到端检查。
+
 ## v1.2.6-yc.4
 
 - 同步 `ddcat-ai/open-ai-canvas` 的 v1.2.6.rc3 主线能力，保留影策 fork 的镜像发布、固定版本更新和失败回退链路。
