@@ -235,7 +235,7 @@ test("Canvas local Agent setup generates exact-origin commands for Unix and Wind
     const unix = module.buildLocalAgentSetupCommands("https://ddcat.pronhubcn.com", "unix");
     const windows = module.buildLocalAgentSetupCommands("https://ddcat.pronhubcn.com", "windows");
 
-    expect(unix.install).toContain("git clone https://github.com/ddcat-ai/open-ai-canvas.git");
+    expect(unix.install).toContain("git clone https://github.com/like95395/open-ai-canvas.git");
     expect(unix.start).toContain("FRAMEFIELD_TRUSTED_WEB_ORIGINS='https://ddcat.pronhubcn.com'");
     expect(unix.start).toContain("node dist/index.js");
     expect(windows.start).toContain("$env:FRAMEFIELD_TRUSTED_WEB_ORIGINS='https://ddcat.pronhubcn.com'");

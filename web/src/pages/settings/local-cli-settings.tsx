@@ -1,8 +1,9 @@
-import { App, Button, Popconfirm, Tag, Typography } from "antd";
+import { Alert, App, Button, Popconfirm, Segmented, Tag, Typography } from "antd";
 import { StatusBadge } from "@/components/ui/base/badges";
-import { CheckCircle2, Copy, ExternalLink, LogIn, LogOut, RefreshCw, Server, SquareTerminal } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, LogIn, LogOut, RefreshCw, Server, SquareTerminal, Terminal } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { buildLocalAgentSetupCommands, detectLocalAgentSetupPlatform, type LocalAgentSetupPlatform } from "@/lib/canvas/local-agent-setup";
 import { DreaminaAgentError, getDreaminaStatus, loginDreamina, logoutDreamina, type DreaminaCliStatus } from "@/services/local-dreamina-cli";
 import { getLocalRuntimeSessionClient, useLocalRuntimeStore, type LocalRuntimeConnectionState } from "@/stores/use-local-runtime-store";
 
@@ -92,6 +93,7 @@ export function LocalCliSettings() {
     const runtimeError = useLocalRuntimeStore((state) => state.error);
     const connect = useLocalRuntimeStore((state) => state.connect);
     const moduleAvailable = modules.some((module) => module.id === "dreamina");
+    const [setupPlatform, setSetupPlatform] = useState<LocalAgentSetupPlatform>(() => detectLocalAgentSetupPlatform());
     const [status, setStatus] = useState<DreaminaCliStatus>();
     const [pending, setPending] = useState<PendingAction>("");
     const lifecycle = useRef<{ revision: number; controller: AbortController | null }>({
@@ -99,6 +101,9 @@ export function LocalCliSettings() {
         controller: null,
     });
     const presentation = localCliSettingsPresentation({ connection, moduleAvailable, dreamina: status });
+    const currentOrigin = typeof window === "undefined" ? "http://localhost:3000" : window.location.origin;
+    const setupCommands = buildLocalAgentSetupCommands(currentOrigin, setupPlatform);
+    const showRecoveryGuide = connection === "origin_not_trusted" || connection === "unreachable" || connection === "incompatible";
 
     const refreshRuntime = useCallback(() => {
         const controller = new AbortController();
@@ -183,6 +188,34 @@ export function LocalCliSettings() {
                 </div>
             </section>
 
+            {showRecoveryGuide ? (
+                <Alert
+                    type="warning"
+                    showIcon
+                    message={connection === "origin_not_trusted" ? "需要在本机重新授权当前站点" : "启动或更新本机 Runtime"}
+                    description={
+                        <div className="space-y-3 pt-1 text-sm">
+                            <p className="leading-6 text-foreground/70">
+                                {connection === "origin_not_trusted" ? "先关闭正在运行的旧 Runtime 窗口，再执行下面的启动命令。" : "首次使用先执行安装命令，再执行启动命令。"}
+                                启动命令只授权当前站点 <span className="font-mono text-foreground">{currentOrigin}</span>。
+                            </p>
+                            <Segmented
+                                size="small"
+                                value={setupPlatform}
+                                options={[
+                                    { label: "Windows PowerShell", value: "windows" },
+                                    { label: "macOS / Linux", value: "unix" },
+                                ]}
+                                onChange={(value) => setSetupPlatform(value as LocalAgentSetupPlatform)}
+                            />
+                            {connection !== "origin_not_trusted" ? <LocalRuntimeCommandBlock label="安装命令" value={setupCommands.install} /> : null}
+                            <LocalRuntimeCommandBlock label={setupPlatform === "windows" ? "PowerShell 启动与授权" : "终端启动与授权"} value={setupCommands.start} />
+                            <p className="text-xs leading-5 text-foreground/55">保持终端窗口运行，看到 Runtime 正在监听 127.0.0.1 后，再点击上方“重新连接”。</p>
+                        </div>
+                    }
+                />
+            ) : null}
+
             <section aria-labelledby="dreamina-cli-title" className="rounded-md border border-border bg-background p-4 sm:p-5">
                 <div className="flex flex-wrap items-start justify-between gap-3 border-b border-border/70 pb-4">
                     <div className="flex min-w-0 items-start gap-3">
@@ -266,6 +299,27 @@ export function LocalCliSettings() {
                     </div>
                 </div>
             </section>
+        </div>
+    );
+}
+
+function LocalRuntimeCommandBlock({ label, value }: { label: string; value: string }) {
+    return (
+        <div className="overflow-hidden rounded-md border border-border/70 bg-black/20">
+            <div className="flex items-center justify-between gap-2 border-b border-border/70 px-3 py-1.5">
+                <span className="inline-flex items-center gap-1.5 text-xs text-foreground/60">
+                    <Terminal className="size-3.5" />
+                    {label}
+                </span>
+                <Typography.Text
+                    copyable={{
+                        text: value,
+                        icon: [<Copy className="size-3.5" key="copy" />, <CheckCircle2 className="size-3.5" key="done" />],
+                        tooltips: ["复制命令", "已复制"],
+                    }}
+                />
+            </div>
+            <pre className="thin-scrollbar overflow-x-auto whitespace-pre p-3 font-mono text-[11px] leading-5 text-foreground/80">{value}</pre>
         </div>
     );
 }
