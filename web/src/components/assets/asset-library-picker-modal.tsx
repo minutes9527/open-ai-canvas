@@ -146,7 +146,7 @@ export function AssetLibraryPickerModal({
                     archived: asset.status === "archived",
                     asset,
                     kindLabel: asset.kind === "image" ? "图片" : asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "文本",
-                    searchText: asset.tags.join(" "),
+                    searchText: (asset.tags ?? []).join(" "),
                     ...(items.find((item) => item.id === asset.id) || { disabledReason: "此素材不适用于当前操作" }),
                 })),
         [remoteQuery.data, items],
@@ -391,6 +391,7 @@ export function AssetLibraryPickerModal({
 
     return (
         <Modal
+            centered
             open={open}
             footer={null}
             title={null}

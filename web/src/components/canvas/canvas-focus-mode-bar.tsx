@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
+import { Tooltip } from "@/components/ui/base/tooltip";
 import { motion, useReducedMotion } from "motion/react";
 import { Bot, PanelBottom, X, ZoomIn, ZoomOut } from "lucide-react";
-import { Tooltip } from "antd";
 
 import { aceternityMotion } from "@/lib/aceternity-motion";
 import { canvasThemes } from "@/lib/canvas-theme";
@@ -55,13 +55,7 @@ export function CanvasFocusModeBar({ visible, dockRevealed, agentOpen, zoomPerce
         >
             <div className="flex items-center gap-0.5 rounded-full p-1 backdrop-blur-2xl" style={{ background: theme.spatial.elevated, color: theme.node.text, boxShadow: "var(--workspace-overlay-shadow)" }}>
                 <Tooltip title="退出专注模式（Esc）">
-                    <button
-                        type="button"
-                        onClick={onExit}
-                        className="grid size-8 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10"
-                        style={{ color: theme.node.text }}
-                        aria-label="退出专注模式"
-                    >
+                    <button type="button" onClick={onExit} className="grid size-8 place-items-center rounded-full transition hover:bg-black/5 dark:hover:bg-white/10" style={{ color: theme.node.text }} aria-label="退出专注模式">
                         <X className="size-4" />
                     </button>
                 </Tooltip>
