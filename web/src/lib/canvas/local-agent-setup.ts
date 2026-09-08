@@ -1,6 +1,6 @@
 export type LocalAgentSetupPlatform = "unix" | "windows";
 
-const CANVAS_REPOSITORY_URL = "https://github.com/ddcat-ai/open-ai-canvas.git";
+const CANVAS_REPOSITORY_URL = "https://github.com/like95395/open-ai-canvas.git";
 
 export function detectLocalAgentSetupPlatform(userAgent = defaultUserAgent()): LocalAgentSetupPlatform {
     return /windows/i.test(userAgent) ? "windows" : "unix";
