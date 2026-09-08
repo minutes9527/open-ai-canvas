@@ -6,6 +6,7 @@ import { Palette, Info } from "lucide-react";
 import { FloatingDock } from "@/components/ui/aceternity/floating-dock";
 import { SpotlightSurface } from "@/components/ui/aceternity/spotlight-surface";
 import { CanvasAppearanceControls } from "@/components/canvas/canvas-appearance-controls";
+import { useCanvasOverlayLayer } from "@/components/canvas/canvas-overlay-layer";
 import { CanvasCreateMenu, type CanvasCreateCommand } from "@/components/canvas/canvas-create-menu";
 import { useCanvasCreateCommands } from "@/components/canvas/use-canvas-create-commands";
 import { ToolbarSettingsModal } from "@/components/canvas/toolbars/toolbar-settings-modal";
@@ -91,6 +92,7 @@ export function CanvasToolbar({
     onInteractionChange?: (active: boolean) => void;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
+    const { bringToFront, zIndex } = useCanvasOverlayLayer("main-toolbar", "var(--z-toolbar)");
     const dockRef = useRef<HTMLDivElement>(null);
     const colorTheme = useThemeStore((state) => state.theme);
     const theme = canvasThemes[colorTheme];
@@ -108,6 +110,10 @@ export function CanvasToolbar({
     }, [interacting, onInteractionChange]);
 
     useEffect(() => () => onInteractionChange?.(false), [onInteractionChange]);
+
+    useEffect(() => {
+        if (addOpen || appearanceOpen) bringToFront();
+    }, [addOpen, appearanceOpen, bringToFront]);
 
     // 设置面板关闭后重新读取偏好（用户可能调整了排序/显隐）
     useEffect(() => {
@@ -201,10 +207,15 @@ export function CanvasToolbar({
             ref={rootRef}
             data-canvas-no-zoom
             data-canvas-immersive-dock
-            className="pointer-events-none absolute inset-x-[var(--canvas-inset-x)] bottom-[var(--canvas-inset-y)] z-[var(--z-toolbar)] flex justify-center"
+            className="pointer-events-none absolute inset-x-[var(--canvas-inset-x)] bottom-[var(--canvas-inset-y)] flex justify-center"
+            style={{ zIndex }}
+            onPointerDownCapture={bringToFront}
             onPointerEnter={() => setPointerInside(true)}
             onPointerLeave={() => setPointerInside(false)}
-            onFocusCapture={() => setFocusWithin(true)}
+            onFocusCapture={() => {
+                bringToFront();
+                setFocusWithin(true);
+            }}
             onBlurCapture={(event) => {
                 if (event.relatedTarget instanceof Node && event.currentTarget.contains(event.relatedTarget)) return;
                 setFocusWithin(false);

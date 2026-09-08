@@ -10,6 +10,7 @@ import { formatTaskKind, statusLabel } from "@/lib/generation-task-display";
 import type { GenerationTask } from "@/services/api/task-center";
 import type { AiConfig } from "@/stores/use-config-store";
 import { formatModelName, getTaskCanvasContext, isTaskFailed, statusDotClassName, taskAttentionReason, TaskBilling, TaskDate } from "./task-shared";
+import { TaskVideoThumbnail } from "./task-video-thumbnail";
 
 export function TaskListRow({
     task,
@@ -124,11 +125,10 @@ function TaskPreviewThumbnail({ task, onOpen }: { task: GenerationTask; onOpen: 
         >
             {thumbnailUrl ? (
                 <MediaPreview src={thumbnailUrl} kind="image" width={68} height={48} loading="lazy" className="h-full w-full object-cover" fallbackLabel="预览不可用" onUnavailable={() => setUnavailableUrl(thumbnailUrl)} />
+            ) : isVideo ? (
+                <TaskVideoThumbnail src={task.previewUrl} />
             ) : (
-                <span className="task-video-poster-placeholder">
-                    <Video className="size-4" />
-                    <small>视频</small>
-                </span>
+                <ImageIcon className="size-4" />
             )}
             {!previewUnavailable ? (
                 <span className="absolute inset-0 grid place-items-center bg-black/0 text-white opacity-0 transition-[background-color,opacity] duration-150 group-hover:bg-black/30 group-hover:opacity-100 group-focus-visible:bg-black/30 group-focus-visible:opacity-100">
