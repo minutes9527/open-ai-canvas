@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.2.7-yc.2
+
+- 修复 `www.min99.cc` HTTPS 访问异常，恢复到正式根域名的安全跳转。
+- 本机 Runtime 未连接、站点 Origin 未授权或版本不兼容时，设置页提供 Windows PowerShell 与 macOS / Linux 恢复指引。
+- 本机 Runtime 安装命令改用影策二开仓库，并按当前线上 Origin 生成精确授权命令，避免升级后丢失自定义能力。
+
 ## v1.2.7-yc.1
 
 - 同步 `ddcat-ai/open-ai-canvas` v1.2.7，加入渠道模型批量操作、图片尺寸预设、系统性能面板，以及素材、插件和创作界面的上游修复。
