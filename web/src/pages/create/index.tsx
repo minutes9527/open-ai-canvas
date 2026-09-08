@@ -1,43 +1,37 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent, type ReactNode, type RefObject } from "react";
 import { App, Button, Drawer, Modal, Popover, Spin, Tooltip } from "antd";
 import { Reorder } from "motion/react";
-import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, Music2, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, WandSparkles, X } from "lucide-react";
+import { ArrowDown, ArrowRightLeft, ArrowUp, Brain, Check, ChevronDown, ChevronLeft, ChevronRight, Clapperboard, Clock3, Copy, Download, FileText, Film, History, Image as ImageIcon, Infinity as InfinityIcon, LoaderCircle, Maximize2, MessageSquareText, Minimize2, Music2, Plus, RefreshCw, Search, SlidersHorizontal, Sparkles, Trash2, WandSparkles, Waves, X } from "lucide-react";
 import { Link } from "react-router";
 
 import { AIMessageMarkdown } from "@/components/ai/ai-message-markdown";
 import { GenerationToolCard, type GenerationToolStatus } from "@/components/ai/generation-tool-card";
 import { MessageReasoning } from "@/components/ai/message-reasoning";
-import { AssetLibraryPickerModal, type AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
+import type { AssetLibraryPickerItem } from "@/components/assets/asset-library-picker-modal";
 import { CachedResourceImage } from "@/components/cached-resource-image";
 import { CanvasResourceMentionTextarea } from "@/components/canvas/canvas-resource-mention-textarea";
-import { CanvasPromptOptimizerDrawer } from "@/components/canvas/canvas-prompt-optimizer-drawer";
 import { VoiceRecordingButton } from "@/components/conversation/voice-recording-button";
 import { ModelPicker } from "@/components/model-picker";
 import { CreditSymbol, requestCreditCost } from "@/constant/credits";
 import { creationCanvasHandoffPath, creationResultAssetIds } from "@/lib/canvas/canvas-asset-handoff";
 import { ASSET_CATEGORY_LABELS } from "@/lib/asset-category";
-import { createGenerationBatchRetryContexts, createGenerationRetryContext, runGenerationOperationOnce, type GenerationRetryContext } from "@/lib/canvas/canvas-project-generation";
+import type { GenerationRetryContext } from "@/lib/canvas/canvas-project-generation";
 import { createClientId } from "@/lib/client-id";
 import { formatShotOrdinal } from "@/lib/shot-label";
 import { generationErrorCode, generationErrorMessage } from "@/lib/generation-error";
+import { dreaminaVideoModeAcceptsKind, dreaminaVideoModeError, dreaminaVideoModeMaxReferences, dreaminaVideoModeOptions, dreaminaVideoOperation, dreaminaVideoProfileForMode, isLocalDreaminaVideoModel, type DreaminaVideoMode, type DreaminaVideoReferenceCounts } from "@/lib/dreamina-video-modes";
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useExternalAssetSources } from "@/hooks/use-external-asset-sources";
 import { buildImageResolutionOptions, formatImageResolutionSize, imageRatioForSize, imageResolutionChoices, imageResolutionOption, imageSizeForResolution, supportsImageResolutionPresets, type ImageResolutionChoice } from "@/lib/image-resolution-tiers";
 import { formatVideoResolutionLabel as videoResolutionLabel, VIDEO_RESOLUTION_OPTIONS } from "@/lib/video-generation-options";
+import { videoDurationScalePosition, videoDurationScaleTicks } from "@/lib/video-duration-scale";
 import { modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, videoDurationAllowed, videoDurationOptions, type ImageCapabilityConfig, type VideoCapabilityConfig } from "@/lib/model-capabilities";
 import { inferVideoOperation, resolveCompatibleModel, mergedImageCapabilityConfig, type ModelRequirements } from "@/lib/model-selection";
-import { isGenerationTaskCancelled, runBackendGenerationTask, runBackendGenerationTaskBatch, type BackendGenerationResult } from "@/services/api/generation-task";
-import { listAddedSkills, type Skill } from "@/services/api/skills";
-import { subscribeGenerationTasks, type GenerationTask } from "@/services/api/task-center";
-import { isLocalDreaminaWaitStopped, localDreaminaCancellationMessage } from "@/services/local-dreamina-task-projection";
+import type { BackendGenerationResult } from "@/services/api/generation-task";
+import type { Skill } from "@/services/api/skills";
+import type { GenerationTask } from "@/services/api/task-center";
 import { resolveResourceUrl } from "@/services/api/resources";
-import { uploadMediaFile } from "@/services/file-storage";
-import { uploadImage } from "@/services/image-storage";
-import { consumeGenerationTaskMessage, generationTaskMaterializedUrls, materializeGenerationTaskAssets, projectGenerationTaskResult } from "@/services/project-asset-sync";
-import { applyGenerationConsumerEffect } from "@/services/generation-consumer-dedupe";
-import { beginGenerationConsumer, runGenerationConsumer } from "@/services/generation-consumer-lifecycle";
 import { loadCreationConversations, pendingCreationTaskIds, removeCreationConversationSnapshot, saveCreationConversations, updateCreationConversationSnapshot } from "@/services/creation-conversation-store";
-import { recoverCreationTextTask } from "@/services/creation-text-task-recovery";
 import { modelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, useConfigStore, useEffectiveConfig } from "@/stores/use-config-store";
 import { useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
@@ -48,13 +42,20 @@ import { promptOptimizerPlugin, PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins
 import { createPluginHostContext } from "@/services/plugin-host";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { buildCreationMentionReferences, displayCreationPrompt, expandCreationPrompt, reconcileCreationAttachmentLimit, removeCreationReferenceTokens, replaceCreationAttachmentReference, selectedCreationReferences, type CreationReference } from "./creation-references";
-import { skillRuntime } from "@/services/skill-runtime";
 import { creationAttachmentFromAsset, creationAttachmentFromAudio, creationAttachmentFromAudioAsset, creationAttachmentFromDocument, creationAttachmentFromExternalAsset, creationAttachmentFromImage, creationAttachmentFromVideo, creationAttachmentFromVideoAsset, creationAttachmentKind, creationAudioAsset, creationFileAccepted, creationImageAsset, creationMediaAspectRatio, creationUploadAccept, creationVideoAsset, removeCreationAttachment, splitCreationAttachments, type CreationAttachment } from "./creation-assets";
+
+const AssetLibraryPickerModal = lazy(() => import("@/components/assets/asset-library-picker-modal").then((module) => ({ default: module.AssetLibraryPickerModal })));
+const CanvasPromptOptimizerDrawer = lazy(() => import("@/components/canvas/canvas-prompt-optimizer-drawer").then((module) => ({ default: module.CanvasPromptOptimizerDrawer })));
+const loadCreationRuntime = () => import("./creation-runtime");
+type CreationRuntime = Awaited<ReturnType<typeof loadCreationRuntime>>;
 
 type CreationMode = "text" | "image" | "video";
 type CreationViewMode = "chat" | "storyboard";
 type CreationStatus = "streaming" | "pending" | "done" | "error" | "cancelled";
-type CreationSettings = { ratio: string; seconds: string; quality: string; videoQuality: string; count: string };
+const CREATION_COMPOSER_COMPACT_DELAY_MS = 160;
+const CREATION_COMPOSER_INITIAL_COMPACT_DELAY_MS = 420;
+const CREATION_COMPOSER_PROXIMITY_PX = 28;
+type CreationSettings = { ratio: string; seconds: string; quality: string; videoQuality: string; count: string; dreaminaMode?: DreaminaVideoMode };
 type CreationRetryContext = GenerationRetryContext & { retryContextsByBatchIndex?: GenerationRetryContext[] };
 type CreationMessage = {
     id: string;
@@ -105,6 +106,10 @@ const countOptions = ["1", "2", "3", "4"];
 const conversationTimeFormatter = new Intl.DateTimeFormat("zh-CN", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", hour12: false });
 const messageTimeFormatter = new Intl.DateTimeFormat("zh-CN", { hour: "2-digit", minute: "2-digit", hour12: false });
 
+function dreaminaReferenceKind(kind: string): "image" | "video" | "audio" | "file" {
+    return kind === "image" || kind === "video" || kind === "audio" ? kind : "file";
+}
+
 function newConversation(): CreationConversation {
     return { id: createClientId(), title: "新创作", updatedAt: new Date().toISOString(), messages: [] };
 }
@@ -129,10 +134,10 @@ function shotsFromMessages(messages: CreationMessage[]): CreationShot[] {
     return shots;
 }
 
-function completedCreationGenerationTask(input: { taskId: string; task?: GenerationTask; mode: "image" | "video"; prompt: string; result: BackendGenerationResult; conversationId: string; messageId: string; batchIndex?: number; batchCount?: number }): GenerationTask {
+function completedCreationGenerationTask(runtime: CreationRuntime, input: { taskId: string; task?: GenerationTask; mode: "image" | "video"; prompt: string; result: BackendGenerationResult; conversationId: string; messageId: string; batchIndex?: number; batchCount?: number }): GenerationTask {
     const now = new Date().toISOString();
     const task = input.task ?? { id: input.taskId, type: input.mode, status: "succeeded" as const, prompt: input.prompt, attempts: 1, createdAt: now, updatedAt: now };
-    return projectGenerationTaskResult({ ...task, status: "succeeded", prompt: input.prompt, clientContext: { conversationId: input.conversationId, messageId: input.messageId, ...(typeof input.batchIndex === "number" ? { batchIndex: input.batchIndex } : {}), ...(typeof input.batchCount === "number" ? { batchCount: input.batchCount } : {}) } }, input.result);
+    return runtime.projectGenerationTaskResult({ ...task, status: "succeeded", prompt: input.prompt, clientContext: { conversationId: input.conversationId, messageId: input.messageId, ...(typeof input.batchIndex === "number" ? { batchIndex: input.batchIndex } : {}), ...(typeof input.batchCount === "number" ? { batchCount: input.batchCount } : {}) } }, input.result);
 }
 
 export default function CreatePage() {
@@ -159,17 +164,21 @@ export default function CreatePage() {
     const activeIdRef = useRef("");
     const [hydrated, setHydrated] = useState(false);
     const [mode, setMode] = useState<CreationMode>(() => initialComposerPreferences.mode || "video");
+    const [dreaminaVideoMode, setDreaminaVideoMode] = useState<DreaminaVideoMode>(() => initialComposerPreferences.video?.dreaminaMode || "all_reference");
     const [prompt, setPrompt] = useState("");
     const [attachments, setAttachments] = useState<CreationAttachment[]>([]);
     const promptRef = useRef(prompt);
     const attachmentsRef = useRef(attachments);
     const [draftReferences, setDraftReferences] = useState<CreationReference[]>([]);
     const [addedSkills, setAddedSkills] = useState<Skill[]>([]);
+    const addedSkillsRequestedRef = useRef(false);
     const [ratio, setRatio] = useState("16:9");
     const [seconds, setSeconds] = useState("6");
     const [quality, setQuality] = useState("auto");
     const [videoQuality, setVideoQuality] = useState(config.vquality || "720");
     const [count, setCount] = useState(String(Math.max(1, Math.min(4, Number(config.count) || 1))));
+    const [textStreaming, setTextStreaming] = useState(true);
+    const [textThinking, setTextThinking] = useState(false);
     const [busy, setBusy] = useState(false);
     const [referenceReplacementBusy, setReferenceReplacementBusy] = useState(false);
     const [viewMode, setViewMode] = useState<CreationViewMode>("chat");
@@ -198,6 +207,11 @@ export default function CreatePage() {
     );
     const preferredModel = mode === "text" ? config.textModel : mode === "image" ? config.imageModel : config.videoModel;
     const hasPrompt = Boolean(prompt.trim());
+    const videoReferenceCounts = useMemo<DreaminaVideoReferenceCounts>(() => attachments.reduce((counts, attachment) => {
+        const kind = creationAttachmentKind(attachment);
+        if (kind === "image" || kind === "video" || kind === "audio") counts[kind] += 1;
+        return counts;
+    }, { image: 0, video: 0, audio: 0 }), [attachments]);
     const modelRequirements = useMemo<ModelRequirements>(() => ({
         capability: mode,
         input: {
@@ -217,8 +231,15 @@ export default function CreatePage() {
 	}), [attachments, config.transparentBackground, config.videoGenerateAudio, config.videoWatermark, count, hasPrompt, mode, quality, ratio, seconds, videoQuality]);
     const selectedModel = resolveCompatibleModel(config, preferredModel, modelRequirements) || preferredModel;
     const imageProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).image!, [config, selectedModel]);
-    const videoProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).video!, [config, selectedModel]);
-    const maxReferences = mode === "video" ? videoProfile.operations.includes("image_to_video") ? videoProfile.references.maxImages : 0 : mode === "image" ? imageProfile.references.maxImages : 6;
+    const baseVideoProfile = useMemo(() => modelCapabilityConfigFor(config, selectedModel).video!, [config, selectedModel]);
+    const selectedUsesLocalDreamina = mode === "video" && isLocalDreaminaVideoModel(selectedModel);
+    const videoProfile = useMemo(() => selectedUsesLocalDreamina ? dreaminaVideoProfileForMode(baseVideoProfile, dreaminaVideoMode, videoReferenceCounts) : baseVideoProfile, [baseVideoProfile, dreaminaVideoMode, selectedUsesLocalDreamina, videoReferenceCounts]);
+    const maxReferences = mode === "video"
+        ? selectedUsesLocalDreamina
+            ? dreaminaVideoModeMaxReferences(dreaminaVideoMode, selectedModel)
+            : videoProfile.operations.includes("image_to_video") ? videoProfile.references.maxImages : 0
+        : mode === "image" ? imageProfile.references.maxImages : 6;
+    const videoModeError = selectedUsesLocalDreamina ? dreaminaVideoModeError(dreaminaVideoMode, selectedModel, videoReferenceCounts) : "";
     const referenceImageSize = useMemo(() => {
         const imageAttachments = attachments.filter(isImageAttachment);
         if (imageAttachments.length !== 1) return undefined;
@@ -247,6 +268,7 @@ export default function CreatePage() {
             if (saved.video.ratio) setRatio(saved.video.ratio);
             if (saved.video.seconds) setSeconds(saved.video.seconds);
             if (saved.video.videoQuality) setVideoQuality(saved.video.videoQuality);
+            if (saved.video.dreaminaMode) setDreaminaVideoMode(saved.video.dreaminaMode);
         }
         setComposerPreferencesInitialized(true);
     }, [composerPreferencesHydrated, composerPreferencesInitialized]);
@@ -277,9 +299,8 @@ export default function CreatePage() {
         setSeconds(normalized.seconds);
         setRatio(normalized.ratio);
         setVideoQuality(normalized.resolution.replace(/p$/i, ""));
-        const maxReferences = videoProfile.operations.includes("image_to_video") ? videoProfile.references.maxImages : 0;
         if (attachments.length > maxReferences) setAttachments((current) => current.slice(0, maxReferences));
-    }, [composerPreferencesHydrated, composerPreferencesInitialized, mode, selectedModel, videoProfile]);
+    }, [attachments.length, composerPreferencesHydrated, composerPreferencesInitialized, maxReferences, mode, selectedModel, videoProfile]);
 
     useEffect(() => {
         const reconciled = reconcileCreationAttachmentLimit(attachments, mentionReferences, maxReferences);
@@ -323,25 +344,26 @@ export default function CreatePage() {
         let cancelled = false;
         const observationController = new AbortController();
         const applyTasks = async (tasks: GenerationTask[]) => {
+            const runtime = await loadCreationRuntime();
             const contextual = attachCreationTaskContexts(tasks, conversations);
-            const persistedTasks = await materializeCreationTaskResults(contextual, observationController.signal);
+            const persistedTasks = await materializeCreationTaskResults(runtime, contextual, observationController.signal);
             if (cancelled) return;
             taskSyncWarningRef.current = false;
             const attachable = persistedTasks.filter((task) => task.status === "succeeded" && Boolean(task.clientContext?.messageId) && Boolean(task.creationResultUrls?.length));
             for (const task of attachable) {
                 try {
-                    await consumeGenerationTaskMessage(task, task.clientContext!.messageId!, async ({ effectKey, resultUrls }) => {
+                    await runtime.consumeGenerationTaskMessage(task, task.clientContext!.messageId!, async ({ effectKey, resultUrls }) => {
                         if (cancelled) return;
                         await updateConversationMessage(task.clientContext!.conversationId!, task.clientContext!.messageId!, (item) =>
-                            applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, resultUrls: Array.from(new Set([...(current.resultUrls || []), ...resultUrls])) })).value,
+                            runtime.applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, resultUrls: Array.from(new Set([...(current.resultUrls || []), ...resultUrls])) })).value,
                         );
-                    }, { signal: observationController.signal, materialize: async () => task, materializedUrls: generationTaskMaterializedUrls });
+                    }, { signal: observationController.signal, materialize: async () => task, materializedUrls: runtime.generationTaskMaterializedUrls });
                 } catch (error) {
                     if (cancelled || observationController.signal.aborted) return;
                     console.warn("创作任务结果挂载失败，将使用已物化结果收敛消息状态", error);
                 }
             }
-            if (!cancelled) setConversations((current) => reconcileCreationTaskMessages(current, persistedTasks));
+            if (!cancelled) setConversations((current) => reconcileCreationTaskMessages(runtime, current, persistedTasks));
         };
         const warnSync = (error: unknown) => {
             if (cancelled || observationController.signal.aborted) return;
@@ -352,9 +374,15 @@ export default function CreatePage() {
             }
         };
         let applyChain = Promise.resolve();
-        const unsubscribe = subscribeGenerationTasks(recoverableTaskIds, (task) => {
-            applyChain = applyChain.then(() => applyTasks([task])).catch(warnSync);
-        });
+        let unsubscribe: () => void = () => {};
+        void loadCreationRuntime()
+            .then((runtime) => {
+                if (cancelled) return;
+                unsubscribe = runtime.subscribeGenerationTasks(recoverableTaskIds, (task) => {
+                    applyChain = applyChain.then(() => applyTasks([task])).catch(warnSync);
+                });
+            })
+            .catch(warnSync);
         return () => {
             cancelled = true;
             observationController.abort();
@@ -362,16 +390,13 @@ export default function CreatePage() {
         };
     }, [hydrated, recoveryTaskKey, toast]);
 
-    useEffect(() => {
-        let cancelled = false;
-        listAddedSkills().then(({ skills }) => {
-            if (!cancelled) setAddedSkills(skills);
-        }).catch(() => {
-            if (!cancelled) setAddedSkills([]);
-        });
-        return () => {
-            cancelled = true;
-        };
+    const loadAddedSkills = useCallback(() => {
+        if (addedSkillsRequestedRef.current) return;
+        addedSkillsRequestedRef.current = true;
+        void import("@/services/api/skills")
+            .then(({ listAddedSkills }) => listAddedSkills())
+            .then(({ skills }) => setAddedSkills(skills))
+            .catch(() => setAddedSkills([]));
     }, []);
 
     useEffect(() => {
@@ -427,6 +452,10 @@ export default function CreatePage() {
         setVideoQuality(value);
         if (mode === "video") rememberVideoSettings({ videoQuality: value });
     };
+    const setComposerDreaminaVideoMode = (value: DreaminaVideoMode) => {
+        setDreaminaVideoMode(value);
+        rememberVideoSettings({ dreaminaMode: value });
+    };
     const setComposerCount = (value: string) => {
         setCount(value);
         if (mode === "image") rememberImageSettings({ count: value });
@@ -435,9 +464,13 @@ export default function CreatePage() {
     const externalLibraryItems = useMemo<AssetLibraryPickerItem[]>(
         () => externalAssetSources.items.map((item) => ({
             ...item,
-            disabledReason: mode === "image" && item.external?.item.kind !== "image" ? "图片创作仅支持参考图" : undefined,
+            disabledReason: mode === "image" && item.external?.item.kind !== "image"
+                ? "图片创作仅支持参考图"
+                : selectedUsesLocalDreamina && item.external?.item.kind && !dreaminaVideoModeAcceptsKind(dreaminaVideoMode, dreaminaReferenceKind(item.external.item.kind))
+                    ? `${dreaminaVideoModeOptions.find((option) => option.value === dreaminaVideoMode)?.label || "当前"}模式仅支持图片`
+                    : undefined,
         })),
-        [externalAssetSources.items, mode],
+        [dreaminaVideoMode, externalAssetSources.items, mode, selectedUsesLocalDreamina],
     );
     const libraryItems = useMemo<AssetLibraryPickerItem[]>(() => [
         ...assets
@@ -449,11 +482,16 @@ export default function CreatePage() {
                 kindLabel: asset.kind === "video" ? "视频" : asset.kind === "audio" ? "音频" : "图片",
                 asset,
                 searchText: (asset.tags || []).join(" "),
-                disabledReason: mode === "image" && asset.kind !== "image" ? "图片创作仅支持参考图" : undefined,
+                disabledReason: mode === "image" && asset.kind !== "image"
+                    ? "图片创作仅支持参考图"
+                    : selectedUsesLocalDreamina && !dreaminaVideoModeAcceptsKind(dreaminaVideoMode, asset.kind)
+                        ? `${dreaminaVideoModeOptions.find((option) => option.value === dreaminaVideoMode)?.label || "当前"}模式仅支持图片`
+                        : undefined,
             })),
         ...externalLibraryItems,
-    ], [assets, externalLibraryItems, mode]);
+    ], [assets, dreaminaVideoMode, externalLibraryItems, mode, selectedUsesLocalDreamina]);
     const uploadCreationAsset = async (file: File) => {
+        const { uploadImage, uploadMediaFile } = await loadCreationRuntime();
         if (file.type.startsWith("video/")) {
             const uploaded = await uploadMediaFile(file, "create-upload");
             return {
@@ -479,7 +517,7 @@ export default function CreatePage() {
         };
     };
     const uploadLibraryAssets = async (files: FileList | File[]) => {
-        const next = Array.from(files).filter((file) => creationFileAccepted(mode, file));
+        const next = Array.from(files).filter((file) => creationFileAccepted(mode, file) && (!selectedUsesLocalDreamina || dreaminaVideoMode === "all_reference" || file.type.startsWith("image/")));
         if (!next.length) return [];
         const settled = await Promise.allSettled(next.map(async (file) => {
             const { asset } = await uploadCreationAsset(file);
@@ -496,8 +534,8 @@ export default function CreatePage() {
         const next = selectedIds.flatMap((id): CreationAttachment[] => {
             const asset = assets.find((item) => item.id === id);
             if (asset?.kind === "image") return [creationAttachmentFromAsset(asset)];
-            if (asset?.kind === "video" && mode !== "image") return [creationAttachmentFromVideoAsset(asset)];
-            if (asset?.kind === "audio" && mode !== "image") return [creationAttachmentFromAudioAsset(asset)];
+            if (asset?.kind === "video" && mode !== "image" && (!selectedUsesLocalDreamina || dreaminaVideoModeAcceptsKind(dreaminaVideoMode, "video"))) return [creationAttachmentFromVideoAsset(asset)];
+            if (asset?.kind === "audio" && mode !== "image" && (!selectedUsesLocalDreamina || dreaminaVideoModeAcceptsKind(dreaminaVideoMode, "audio"))) return [creationAttachmentFromAudioAsset(asset)];
             const external = libraryItems.find((item) => item.id === id)?.external;
             return external ? [creationAttachmentFromExternalAsset(external)] : [];
         });
@@ -517,6 +555,15 @@ export default function CreatePage() {
         const references = mentionReferences.filter((item) => item.attachmentId && attachmentIds.has(item.attachmentId));
         setAttachments([]);
         if (references.length) setPrompt((current) => removeCreationReferenceTokens(current, references));
+    };
+
+    const clearComposer = () => {
+        promptRef.current = "";
+        attachmentsRef.current = [];
+        setPrompt("");
+        setAttachments([]);
+        setDraftReferences([]);
+        window.requestAnimationFrame(() => composerFocusRef.current?.focus());
     };
 
     const reorderAttachments = useCallback((next: CreationAttachment[]) => {
@@ -581,6 +628,11 @@ export default function CreatePage() {
             releaseRetryLock();
             return;
         }
+        if (mode === "video" && videoModeError) {
+            toast.warning(videoModeError);
+            releaseRetryLock();
+            return;
+        }
         if (mode === "video" && !videoDurationAllowed(videoProfile, Number(seconds))) {
             toast.error("当前模型不支持所选视频时长，请重新选择");
             releaseRetryLock();
@@ -591,21 +643,24 @@ export default function CreatePage() {
             releaseRetryLock();
             return;
         }
-        const settings = { ratio, seconds, quality, videoQuality, count };
+        const settings: CreationSettings = { ratio, seconds, quality, videoQuality, count, ...(selectedUsesLocalDreamina ? { dreaminaMode: dreaminaVideoMode } : {}) };
         const references = selectedCreationReferences(text, mentionReferences);
         // 后端对图片和视频使用不同的参考字段；这里先拆分，避免媒体类型在写入任务时被误判。
         const { referenceImages, referenceVideos, referenceAudios } = splitCreationAttachments(attachments);
-        const videoOperation = inferVideoOperation({
-            textCount: text ? 1 : 0,
-            imageCount: referenceImages.length,
-            videoCount: referenceVideos.length,
-            audioCount: referenceAudios.length,
-            characterCount: 0,
-        });
+        const videoOperation = selectedUsesLocalDreamina
+            ? dreaminaVideoOperation(dreaminaVideoMode, { image: referenceImages.length, video: referenceVideos.length, audio: referenceAudios.length })
+            : inferVideoOperation({
+                textCount: text ? 1 : 0,
+                imageCount: referenceImages.length,
+                videoCount: referenceVideos.length,
+                audioCount: referenceAudios.length,
+                characterCount: 0,
+            });
         const skillReferences = references.flatMap((reference) => (reference.skill ? [reference.skill] : []));
-        let skillExecution: Awaited<ReturnType<typeof skillRuntime.prepare<"creation">>>;
+        const runtime = await loadCreationRuntime();
+        let skillExecution: Awaited<ReturnType<typeof runtime.skillRuntime.prepare>>;
         try {
-            skillExecution = await skillRuntime.prepare({
+            skillExecution = await runtime.skillRuntime.prepare({
                 profile: "creation",
                 prompt: expandCreationPrompt(text, references, attachments),
                 skills: skillReferences,
@@ -620,7 +675,7 @@ export default function CreatePage() {
         const referenceMetadata = skillExecution.metadata;
         followLatestMessageRef.current = true;
         const userMessage = newMessage("user", text, { mode, model: selectedModel, attachments, references, settings });
-        const assistantMessage = newMessage("assistant", "", { mode, model: selectedModel, status: mode === "text" ? "streaming" : "pending", settings, ...retryContext });
+        const assistantMessage = newMessage("assistant", "", { mode, model: selectedModel, status: mode === "text" && textStreaming ? "streaming" : "pending", settings, ...retryContext });
         const originConversationId = activeConversation.id;
         const updateOriginAssistant = (updater: (item: CreationMessage) => CreationMessage) => updateConversationMessage(originConversationId, assistantMessage.id, updater);
         const boundTaskIds = new Set<string>();
@@ -650,7 +705,7 @@ export default function CreatePage() {
         setComposingNextShot(false);
         setBusy(true);
         const controller = new AbortController();
-        const requestLifecycle = beginGenerationConsumer(controller.signal);
+        const requestLifecycle = runtime.beginGenerationConsumer(controller.signal);
         abortRef.current = controller;
         const normalizedImage = mode === "image" ? normalizeImageValue(imageProfile, { size: ratio, quality, count }) : undefined;
         const normalizedVideo = mode === "video" ? normalizeVideoValue(videoProfile, { seconds, ratio, resolution: videoQuality }) : undefined;
@@ -668,7 +723,7 @@ export default function CreatePage() {
         };
         try {
             if (mode === "text") {
-                const result = await runGenerationOperationOnce(retryContext?.clientOperationId, () => runBackendGenerationTask({
+                const result = await runtime.runGenerationOperationOnce(retryContext?.clientOperationId, () => runtime.runBackendGenerationTask({
                     mode: "text",
                     prompt: expandedPrompt,
                     config: requestConfig,
@@ -679,14 +734,16 @@ export default function CreatePage() {
                     signal: requestLifecycle.signal,
                     metadata: { source: "create-page", conversationId: activeConversation.id, messageId: assistantMessage.id, ...referenceMetadata },
                     onTaskUpdate: bindTask,
-                    onTextDelta: (value) => updateOriginAssistant((item) => ({ ...item, content: value })),
+                    streamText: textStreaming,
+                    enableThinking: textThinking,
+                    onTextDelta: textStreaming ? (value) => updateOriginAssistant((item) => ({ ...item, content: value })) : undefined,
                     ...retryContext,
                 }));
                 if (!result.text?.trim()) throw new Error("后端任务没有返回文本");
                 updateOriginAssistant((item) => ({ ...item, content: result.text || "", reasoning: result.reasoning }));
             } else if (mode === "image") {
                 const taskCount = Math.max(1, Math.min(imageProfile.maxOutputs, Math.floor(Number(count) || 1)));
-                const settled = await runGenerationOperationOnce(retryContext?.clientOperationId, () => runBackendGenerationTaskBatch({
+                const settled = await runtime.runGenerationOperationOnce(retryContext?.clientOperationId, () => runtime.runBackendGenerationTaskBatch({
                     mode: "image",
                     prompt: expandedPrompt,
                     config: { ...requestConfig, count: "1" },
@@ -711,11 +768,11 @@ export default function CreatePage() {
                 const taskFailures = settled.filter((entry): entry is PromiseRejectedResult => entry.status === "rejected");
                 const storedImages = await Promise.allSettled(generatedImages.map(async ({ image, taskId, batchIndex }) => {
                     if (!taskId) throw new Error("生成任务缺少稳定任务标识");
-                    const task = completedCreationGenerationTask({ taskId, task: boundTasks.get(taskId), mode: "image", prompt: expandedPrompt, result: { mode: "image", images: [image] }, conversationId: activeConversation.id, messageId: assistantMessage.id, batchIndex, batchCount: taskCount });
-                    const materialized = await consumeGenerationTaskMessage(task, assistantMessage.id, async ({ resultUrls, effectKey }) => {
-                        await updateOriginAssistant((item) => applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, content: "图片已生成", resultUrls: Array.from(new Set([...(current.resultUrls || []), ...resultUrls])) })).value);
+                    const task = completedCreationGenerationTask(runtime, { taskId, task: boundTasks.get(taskId), mode: "image", prompt: expandedPrompt, result: { mode: "image", images: [image] }, conversationId: activeConversation.id, messageId: assistantMessage.id, batchIndex, batchCount: taskCount });
+                    const materialized = await runtime.consumeGenerationTaskMessage(task, assistantMessage.id, async ({ resultUrls, effectKey }) => {
+                        await updateOriginAssistant((item) => runtime.applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, content: "图片已生成", resultUrls: Array.from(new Set([...(current.resultUrls || []), ...resultUrls])) })).value);
                     }, { signal: requestLifecycle.signal });
-                    const url = generationTaskMaterializedUrls(materialized)[0];
+                    const url = runtime.generationTaskMaterializedUrls(materialized)[0];
                     if (!url) throw new Error("图片结果资源不可用");
                     return url;
                 }));
@@ -729,7 +786,7 @@ export default function CreatePage() {
                 if (failedCount) toast.warning(`${resultUrls.length} 张图片已生成，${failedCount} 张生成失败`);
                 updateOriginAssistant((item) => ({ ...item, content: failedCount ? `${resultUrls.length} 张图片已生成，${failedCount} 张失败` : "图片已生成" }));
             } else {
-                const result = await runGenerationOperationOnce(retryContext?.clientOperationId, () => runBackendGenerationTask({
+                const result = await runtime.runGenerationOperationOnce(retryContext?.clientOperationId, () => runtime.runBackendGenerationTask({
                     mode: "video",
                     prompt: expandedPrompt,
                     config: requestConfig,
@@ -744,15 +801,15 @@ export default function CreatePage() {
                 if (!result.video?.dataUrl) throw new Error("后端任务没有返回视频");
                 const taskId = Array.from(boundTaskIds)[0];
                 if (!taskId) throw new Error("生成任务缺少稳定任务标识");
-                const task = completedCreationGenerationTask({ taskId, task: boundTasks.get(taskId), mode: "video", prompt: expandedPrompt, result, conversationId: activeConversation.id, messageId: assistantMessage.id });
-                const materialized = await consumeGenerationTaskMessage(task, assistantMessage.id, async ({ resultUrls, effectKey }) => {
-                    await updateOriginAssistant((item) => applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, content: "视频已生成", resultUrls })).value);
+                const task = completedCreationGenerationTask(runtime, { taskId, task: boundTasks.get(taskId), mode: "video", prompt: expandedPrompt, result, conversationId: activeConversation.id, messageId: assistantMessage.id });
+                const materialized = await runtime.consumeGenerationTaskMessage(task, assistantMessage.id, async ({ resultUrls, effectKey }) => {
+                    await updateOriginAssistant((item) => runtime.applyGenerationConsumerEffect(item, effectKey, (current) => ({ ...current, status: "done" as const, content: "视频已生成", resultUrls })).value);
                 }, { signal: requestLifecycle.signal });
-                if (!generationTaskMaterializedUrls(materialized)[0]) throw new Error("视频结果资源不可用");
+                if (!runtime.generationTaskMaterializedUrls(materialized)[0]) throw new Error("视频结果资源不可用");
             }
             updateOriginAssistant((item) => ({ ...item, status: "done" }));
         } catch (error) {
-            if (isGenerationTaskCancelled(error, requestLifecycle.signal)) {
+            if (runtime.isGenerationTaskCancelled(error, requestLifecycle.signal)) {
                 updateOriginAssistant((item) => ({ ...item, status: "cancelled", content: "已停止" }));
                 return;
             }
@@ -853,8 +910,9 @@ export default function CreatePage() {
         setQuality(nextSettings.quality);
         setVideoQuality(nextSettings.videoQuality);
         setCount(nextSettings.count);
+        if (nextSettings.dreaminaMode) setDreaminaVideoMode(nextSettings.dreaminaMode);
         if (nextMode === "image") rememberImageSettings({ ratio: nextSettings.ratio, quality: nextSettings.quality, count: nextSettings.count });
-        if (nextMode === "video") rememberVideoSettings({ ratio: nextSettings.ratio, seconds: nextSettings.seconds, videoQuality: nextSettings.videoQuality });
+        if (nextMode === "video") rememberVideoSettings({ ratio: nextSettings.ratio, seconds: nextSettings.seconds, videoQuality: nextSettings.videoQuality, ...(nextSettings.dreaminaMode ? { dreaminaMode: nextSettings.dreaminaMode } : {}) });
     };
 
     const retryFailedMessage = async (item: CreationMessage, index: number) => {
@@ -880,8 +938,9 @@ export default function CreatePage() {
         if (retryPreparingRef.current.has(retryOf)) return;
         retryPreparingRef.current.add(retryOf);
         try {
+            const runtime = await loadCreationRuntime();
             const attemptGroupId = item.attemptGroupId || item.retryOf || retryOf;
-            const context: CreationRetryContext = { ...(await createGenerationRetryContext(retryOf, attemptGroupId)), ...(item.taskIds && item.taskIds.length > 1 ? { retryContextsByBatchIndex: await createGenerationBatchRetryContexts(item.taskIds, attemptGroupId) } : {}) };
+            const context: CreationRetryContext = { ...(await runtime.createGenerationRetryContext(retryOf, attemptGroupId)), ...(item.taskIds && item.taskIds.length > 1 ? { retryContextsByBatchIndex: await runtime.createGenerationBatchRetryContexts(item.taskIds, attemptGroupId) } : {}) };
             restoreForRetry();
             pendingRetryRef.current = { context, lockKey: retryOf };
             setRetrySequence((current) => current + 1);
@@ -927,6 +986,7 @@ export default function CreatePage() {
         references: mentionReferences,
         onRemoveAttachment: removeAttachment,
         onClearAttachments: clearAttachments,
+        onClearComposer: clearComposer,
         onReorderAttachments: reorderAttachments,
         onReplaceAttachment: replaceReferenceFromTrack,
         onReplaceReferenceFiles: replaceReferenceFromFiles,
@@ -936,6 +996,9 @@ export default function CreatePage() {
         modelRequirements,
         imageProfile,
         videoProfile,
+        dreaminaVideoMode: selectedUsesLocalDreamina ? dreaminaVideoMode : undefined,
+        onDreaminaVideoModeChange: setComposerDreaminaVideoMode,
+        videoModeError,
         config,
         onModelChange: (value: string) => updateConfig(mode === "text" ? "textModel" : mode === "image" ? "imageModel" : "videoModel", value),
         ratio,
@@ -948,8 +1011,15 @@ export default function CreatePage() {
         setVideoQuality: setComposerVideoQuality,
         count,
         setCount: setComposerCount,
+        textStreaming,
+        setTextStreaming,
+        textThinking,
+        setTextThinking,
         promptOptimizerProvider,
         composerFocusRef,
+        browsingContainerRef: threadScrollRef,
+        onPromptFocus: loadAddedSkills,
+        overlayOpen: libraryOpen,
         placeholderOverride: viewMode === "storyboard" && composingNextShot ? `${formatShotOrdinal(nextShotNumber - 1)} · 写下这一镜的镜头、画面或故事` : undefined,
         onSubmit: () => void submit(),
     };
@@ -1021,16 +1091,17 @@ export default function CreatePage() {
             </div>}
         </div>
         <CreationHistoryDrawer open={historyOpen} conversations={historyConversations} activeId={activeConversation.id} onClose={() => setHistoryOpen(false)} onSelect={selectConversation} onDelete={confirmDeleteConversation} />
-        <AssetLibraryPickerModal
+        {libraryOpen ? <Suspense fallback={null}><AssetLibraryPickerModal
+            remoteLibrary
             open={libraryOpen}
             items={libraryItems}
             categoryLabels={{ ...creationAssetCategoryLabels, ...externalAssetSources.categoryLabels }}
             folders={externalAssetSources.folders}
             initialSelectedIds={attachments.flatMap((item) => item.id.startsWith("asset:") ? [item.id.slice(6)] : item.id.startsWith("external:") ? [item.id] : [])}
-            upload={{ accept: creationUploadAccept(mode), description: mode === "text" ? "支持图片、视频、音频和常用文档；媒体会保存到素材库" : `支持图片${mode === "video" ? "、视频和音频" : ""}，上传后保存到素材库`, onUpload: uploadLibraryAssets, external: { accept: "image/*", description: "写入当前 Eagle 文件夹；Eagle 当前支持图片文件", onUpload: (files, folderId) => externalAssetSources.uploadExternalFiles(files, folderId) } }}
+            upload={{ accept: selectedUsesLocalDreamina && dreaminaVideoMode !== "all_reference" ? "image/*" : creationUploadAccept(mode), description: selectedUsesLocalDreamina && dreaminaVideoMode !== "all_reference" ? `${dreaminaVideoModeOptions.find((option) => option.value === dreaminaVideoMode)?.label || "当前模式"}仅支持图片，按素材顺序生成视频` : mode === "text" ? "支持图片、视频、音频和常用文档；媒体会保存到素材库" : `支持图片${mode === "video" ? "、视频和音频" : ""}，上传后保存到素材库`, onUpload: uploadLibraryAssets, external: { accept: "image/*", description: "写入当前 Eagle 文件夹；Eagle 当前支持图片文件", onUpload: (files, folderId) => externalAssetSources.uploadExternalFiles(files, folderId) } }}
             onClose={() => setLibraryOpen(false)}
             onConfirm={handleLibrarySelect}
-        />
+        /></Suspense> : null}
     </>;
 }
 
@@ -1104,7 +1175,7 @@ function CreationMessageView({ item, modelName, onRetryFailure, onCreateVariant 
     if (item.role === "user") return <CreationUserMessage item={item} />;
     const mode = item.mode || "text";
     const stateLabel = item.status === "pending" ? "生成中" : item.status === "cancelled" ? "已停止" : item.status === "error" ? "生成失败" : "";
-    const heading = <><span className="creation-message-mark"><Sparkles /></span><strong>{mode === "image" ? "图像生成" : mode === "video" ? "视频生成" : `${brandName} AI`}</strong>{mode !== "text" ? <span className="creation-message-progress-copy">{item.status === "pending" ? `${brandName}正在生成${mode === "video" ? "视频" : "图像"}……` : item.status === "done" ? `你的${mode === "video" ? "视频" : "图像"}已创建` : null}</span> : null}{modelName ? <span className="creation-message-model">{modelName}</span> : null}{item.createdAt ? <time dateTime={item.createdAt}>{formatMessageTime(item.createdAt)}</time> : null}{stateLabel ? <span className={`creation-message-state is-${item.status}`}>{stateLabel}</span> : null}</>;
+    const heading = <><span className="creation-message-mark"><Sparkles /></span><strong>{mode === "image" ? "图像生成" : mode === "video" ? "视频生成" : `${brandName} AI`}</strong>{mode !== "text" ? <span className="creation-message-progress-copy">{item.status === "pending" ? `${brandName}正在生成${mode === "video" ? "视频" : "图像"}……` : item.status === "done" ? `你的${mode === "video" ? "视频" : "图像"}已创建` : null}</span> : null}{modelName ? <span className="creation-message-model">{modelName}</span> : null}{item.createdAt ? <time dateTime={item.createdAt}>{formatMessageTime(item.createdAt)}</time> : null}{stateLabel ? <span className={`creation-message-state is-${item.status}`}>{stateLabel}</span> : null}{mode !== "text" && item.status === "done" ? <button type="button" className="creation-message-variant-action" onClick={onCreateVariant}><RefreshCw />生成同款</button> : null}</>;
     const toolStatus: GenerationToolStatus = item.status === "pending" ? "running" : item.status === "error" ? "error" : item.status === "cancelled" ? "cancelled" : "completed";
     return <article className={`creation-assistant-message is-${mode}`}>
         {mode === "text" ? <><div className="creation-message-heading">{heading}</div>{item.reasoning ? <MessageReasoning reasoning={item.reasoning} isStreaming={item.status === "streaming"} /> : null}<div className="creation-message-content">{item.content ? <AIMessageMarkdown isStreaming={item.status === "streaming"}>{item.content}</AIMessageMarkdown> : <span>正在生成…</span>}</div></> : <GenerationToolCard status={toolStatus} isBulk={(item.resultUrls?.length || Number(item.settings?.count) || 1) > 1} heading={heading}><MediaResult item={item} onRetryFailure={onRetryFailure} onCreateVariant={onCreateVariant} /></GenerationToolCard>}
@@ -1146,7 +1217,7 @@ function MediaResult({ item, onRetryFailure, onCreateVariant }: { item: Creation
     const isVideo = item.mode === "video";
     return <div className="creation-media-result">
         {isVideo ? <button type="button" className="creation-video-result" onClick={() => { setPreviewType("video"); setPreviewUrl(resultUrls[0]); }} aria-label="预览生成视频"><video muted preload="metadata" src={resultUrls[0]} /><span><Maximize2 />预览视频</span></button> : <div className="creation-image-result-grid">{resultUrls.map((url) => <button key={url} type="button" className="creation-image-result" onClick={() => { setPreviewType("image"); setPreviewUrl(url); }} aria-label="预览生成图片"><img src={url} alt="生成结果" /><span><Maximize2 /></span></button>)}</div>}
-        <div className="creation-media-actions"><span>{isVideo ? "视频结果" : `${resultUrls.length} 张图片`}</span><button type="button" onClick={onCreateVariant}><RefreshCw />生成同款</button><Link to={canvasPath}>{resultAssetIds.length ? "添加到画布" : "打开画布"}</Link>{resultUrls.map((url, index) => <a key={`${url}-download`} href={url} download>{resultUrls.length > 1 ? `下载 ${index + 1}` : <><Download />下载</>}</a>)}</div>
+        <div className="creation-media-actions"><span>{isVideo ? "视频结果" : `${resultUrls.length} 张图片`}</span><Link to={canvasPath}>{resultAssetIds.length ? "添加到画布" : "打开画布"}</Link>{resultUrls.map((url, index) => <a key={`${url}-download`} href={url} download>{resultUrls.length > 1 ? `下载 ${index + 1}` : <><Download />下载</>}</a>)}</div>
         <CreationMediaPreviewModal url={previewUrl} type={previewType} onClose={() => setPreviewUrl("")} />
     </div>;
 }
@@ -1259,6 +1330,45 @@ function CreationAttachmentThumbnail({ item, onPreview, onRemove }: {
     </div>;
 }
 
+function FirstLastFrameReferenceSlots({ attachments, busy, canAddMore, onOpenLibrary, onPreview, onRemove, onSwap }: {
+    attachments: CreationAttachment[];
+    busy: boolean;
+    canAddMore: boolean;
+    onOpenLibrary: () => void;
+    onPreview: (type: "image" | "video", url: string) => void;
+    onRemove: (id: string) => void;
+    onSwap: () => void;
+}) {
+    const startFrame = attachments[0];
+    const endFrame = attachments[1];
+    const slot = (item: CreationAttachment | undefined, role: "start" | "end", label: "首帧" | "尾帧") => {
+        const waitingForStart = role === "end" && !startFrame;
+        const disabled = busy || !canAddMore || waitingForStart;
+        const actionLabel = busy ? "生成中暂不能添加参考图" : waitingForStart ? "请先添加首帧" : `添加${label}`;
+        return <li key={role} className={`creation-first-last-frame-slot is-${role}${item ? " has-media" : ""}`}>
+            {item ? <>
+                <CreationAttachmentThumbnail item={item} onPreview={onPreview} onRemove={onRemove} />
+                <span className="creation-first-last-frame-role">{label}</span>
+            </> : <button type="button" className="creation-first-last-frame-add" onClick={onOpenLibrary} disabled={disabled} aria-label={actionLabel} title={actionLabel}>
+                <Plus aria-hidden="true" />
+                <span>{label}</span>
+            </button>}
+        </li>;
+    };
+
+    return <div className="creation-first-last-frame-panel" aria-busy={busy}>
+        <ol className="creation-first-last-frame-slots" aria-label="首尾帧参考图">
+            {slot(startFrame, "start", "首帧")}
+            <li className="creation-first-last-frame-swap-slot">
+                <button type="button" className="creation-first-last-frame-swap" onClick={onSwap} disabled={busy || !startFrame || !endFrame} aria-label="交换首帧和尾帧" title={startFrame && endFrame ? "交换首帧和尾帧" : "添加两张图片后可交换"}>
+                    <ArrowRightLeft aria-hidden="true" />
+                </button>
+            </li>
+            {slot(endFrame, "end", "尾帧")}
+        </ol>
+    </div>;
+}
+
 type ComposerProps = {
     variant: "empty" | "thread";
     mode: CreationMode;
@@ -1272,6 +1382,7 @@ type ComposerProps = {
     references: CreationReference[];
     onRemoveAttachment: (id: string) => void;
     onClearAttachments: () => void;
+    onClearComposer: () => void;
     onReorderAttachments: (attachments: CreationAttachment[]) => void;
     onReplaceAttachment: (targetAttachmentId: string, replacement: CreationAttachment) => void;
     onReplaceReferenceFiles: (targetAttachmentId: string, files: File[]) => void;
@@ -1280,6 +1391,9 @@ type ComposerProps = {
     model: string;
     modelRequirements: ModelRequirements;
     videoProfile: VideoCapabilityConfig;
+    dreaminaVideoMode?: DreaminaVideoMode;
+    onDreaminaVideoModeChange: (mode: DreaminaVideoMode) => void;
+    videoModeError: string;
     imageProfile: ImageCapabilityConfig;
     config: ReturnType<typeof useEffectiveConfig>;
     onModelChange: (value: string) => void;
@@ -1293,8 +1407,15 @@ type ComposerProps = {
     setVideoQuality: (value: string) => void;
     count: string;
     setCount: (value: string) => void;
+    textStreaming: boolean;
+    setTextStreaming: (value: boolean) => void;
+    textThinking: boolean;
+    setTextThinking: (value: boolean) => void;
     promptOptimizerProvider: PromptOptimizerProvider | null;
     composerFocusRef: RefObject<HTMLTextAreaElement | null>;
+    browsingContainerRef: RefObject<HTMLElement | null>;
+    onPromptFocus: () => void;
+    overlayOpen: boolean;
     placeholderOverride?: string;
     onSubmit: () => void;
 };
@@ -1302,6 +1423,10 @@ type ComposerProps = {
 type CreationReferenceFilter = "all" | "image" | "video" | "audio" | "file";
 
 function CreationComposer(props: ComposerProps) {
+    const composerRef = useRef<HTMLElement>(null);
+    const compactTimerRef = useRef<number | null>(null);
+    const pointerWithinComposerRef = useRef(false);
+    const [displayState, setDisplayState] = useState<"expanded" | "compact">("expanded");
     const [previewUrl, setPreviewUrl] = useState("");
     const [previewType, setPreviewType] = useState<"image" | "video">("image");
     const [promptOptimizerOpen, setPromptOptimizerOpen] = useState(false);
@@ -1312,9 +1437,10 @@ function CreationComposer(props: ComposerProps) {
     const cardDragRef = useRef<{ startX: number; startY: number; moved: boolean } | null>(null);
     const suppressAttachmentClickRef = useRef(false);
     const [trackState, setTrackState] = useState({ canScrollLeft: false, canScrollRight: false, isExpanded: true, isDragging: false });
-    const previousAttachmentCountRef = useRef(props.attachments.length);
+    const previousAttachmentCountRef = useRef(0);
     const interactionBusy = props.busy || props.referenceReplacementBusy;
-    const canSubmit = Boolean(props.prompt.trim()) && !interactionBusy;
+    const firstLastFrameMode = props.mode === "video" && props.dreaminaVideoMode === "first_last_frames";
+    const canSubmit = Boolean(props.prompt.trim()) && !interactionBusy && !props.videoModeError;
     const creditsEnabled = useUserStore((state) => state.features.creditsEnabled);
     const priceChannel = resolveModelChannel(props.config, props.model);
     const canOptimizePrompt = Boolean(props.promptOptimizerProvider) && (props.mode === "image" || props.mode === "video");
@@ -1328,15 +1454,19 @@ function CreationComposer(props: ComposerProps) {
     });
     const showCost = creditsEnabled && credits !== null;
     const formattedCredits = credits?.toLocaleString("zh-CN", { maximumFractionDigits: 6 });
-    const actionLabel = props.referenceReplacementBusy ? "正在替换参考图" : props.busy ? "生成中" : showCost ? `预计消耗 ${formattedCredits} 积分，发送` : "发送";
+    const actionLabel = props.referenceReplacementBusy ? "正在替换参考图" : props.busy ? "生成中" : props.videoModeError || (showCost ? `预计消耗 ${formattedCredits} 积分，发送` : "发送");
     const placeholder = props.mode === "text"
         ? "描述你的故事、角色或想继续讨论的创意"
         : props.mode === "image"
             ? "描述画面、人物、场景、构图与风格"
-            : "描述镜头内容、运动、光线与节奏";
+            : props.dreaminaVideoMode === "first_last_frames"
+                ? "描述首帧到尾帧之间的运动与变化"
+                : props.dreaminaVideoMode === "smart_multi_frame"
+                    ? "描述多帧画面之间的转场、运动与节奏"
+                    : "描述镜头内容、运动、光线与节奏";
     const emptyPlaceholder = "输入你的镜头、画面或故事。也可以添加参考图开始创作";
     const imageReferencesSupported = props.imageProfile.references.maxImages > 0;
-    const referencesSupported = props.mode === "image" ? imageReferencesSupported : props.mode !== "video" || props.videoProfile.operations.includes("image_to_video");
+    const referencesSupported = props.mode === "image" ? imageReferencesSupported : props.mode !== "video" || props.maxReferences > 0;
     const canAddMoreReferences = referencesSupported && props.attachments.length < props.maxReferences;
     const addReferenceLabel = interactionBusy ? (props.referenceReplacementBusy ? "正在替换参考图" : "生成中暂不能添加参考内容") : canAddMoreReferences ? "添加更多参考内容" : `已达到当前模型的参考内容上限（${props.maxReferences} 个）`;
     const referenceCounts = useMemo(() => props.attachments.reduce((counts, attachment) => {
@@ -1348,6 +1478,69 @@ function CreationComposer(props: ComposerProps) {
         ? props.attachments
         : props.attachments.filter((attachment) => creationAttachmentKind(attachment) === referenceFilter), [props.attachments, referenceFilter]);
     const imageSettingsSupported = props.imageProfile.size.parameter !== "none" || props.imageProfile.quality.supported || props.imageProfile.maxOutputs > 1;
+    const clearCompactTimer = useCallback(() => {
+        if (compactTimerRef.current === null) return;
+        window.clearTimeout(compactTimerRef.current);
+        compactTimerRef.current = null;
+    }, []);
+    const expandComposer = useCallback(() => {
+        clearCompactTimer();
+        setDisplayState("expanded");
+    }, [clearCompactTimer]);
+    const compactComposer = useCallback(() => {
+        if (props.variant !== "thread") return;
+        const root = composerRef.current;
+        if (!root || pointerWithinComposerRef.current || root.matches(":hover")) return;
+        if (props.overlayOpen || promptOptimizerOpen || previewUrl || trackState.isDragging) return;
+        if (root.querySelector('[aria-expanded="true"]') || root.contains(document.activeElement)) return;
+        clearCompactTimer();
+        setTrackState((current) => current.isExpanded ? { ...current, isExpanded: false } : current);
+        setDisplayState("compact");
+    }, [clearCompactTimer, previewUrl, promptOptimizerOpen, props.overlayOpen, props.variant, trackState.isDragging]);
+    const scheduleComposerCompact = useCallback(() => {
+        clearCompactTimer();
+        if (props.variant !== "thread") return;
+        compactTimerRef.current = window.setTimeout(() => compactComposer(), CREATION_COMPOSER_COMPACT_DELAY_MS);
+    }, [clearCompactTimer, compactComposer, props.variant]);
+
+    useEffect(() => {
+        if (props.variant !== "thread") {
+            clearCompactTimer();
+            setDisplayState("expanded");
+            return;
+        }
+        const browsingContainer = props.browsingContainerRef.current;
+        const handleBrowseScroll = () => compactComposer();
+        const handleBrowseWheel = () => compactComposer();
+        const handleBrowsePointerDown = () => compactComposer();
+        const handleBrowsePointerMove = (event: globalThis.PointerEvent) => {
+            const rect = composerRef.current?.getBoundingClientRect();
+            if (!rect) return;
+            const nearComposer = event.clientX >= rect.left
+                && event.clientX <= rect.right
+                && event.clientY >= rect.top - CREATION_COMPOSER_PROXIMITY_PX
+                && event.clientY <= rect.bottom;
+            if (nearComposer) expandComposer();
+            else scheduleComposerCompact();
+        };
+        browsingContainer?.addEventListener("scroll", handleBrowseScroll, { passive: true });
+        browsingContainer?.addEventListener("wheel", handleBrowseWheel, { passive: true });
+        browsingContainer?.addEventListener("pointerdown", handleBrowsePointerDown, { passive: true });
+        browsingContainer?.addEventListener("pointermove", handleBrowsePointerMove, { passive: true });
+        compactTimerRef.current = window.setTimeout(() => compactComposer(), CREATION_COMPOSER_INITIAL_COMPACT_DELAY_MS);
+        return () => {
+            browsingContainer?.removeEventListener("scroll", handleBrowseScroll);
+            browsingContainer?.removeEventListener("wheel", handleBrowseWheel);
+            browsingContainer?.removeEventListener("pointerdown", handleBrowsePointerDown);
+            browsingContainer?.removeEventListener("pointermove", handleBrowsePointerMove);
+            clearCompactTimer();
+        };
+    }, [clearCompactTimer, compactComposer, expandComposer, props.browsingContainerRef, props.variant, scheduleComposerCompact]);
+
+    useEffect(() => {
+        if (props.overlayOpen || promptOptimizerOpen || previewUrl) expandComposer();
+    }, [expandComposer, previewUrl, promptOptimizerOpen, props.overlayOpen]);
+
     const updateTrackScrollState = useCallback(() => {
         const track = attachmentTrackRef.current;
         if (!track) return;
@@ -1435,11 +1628,35 @@ function CreationComposer(props: ComposerProps) {
         }
         return undefined;
     };
-    const composer = <section className={`creation-chat-composer is-${props.variant}`}>
+    const composer = <section
+        ref={composerRef}
+        className={`creation-chat-composer is-${props.variant} is-composer-${displayState}`}
+        data-composer-state={displayState}
+        onPointerEnter={() => {
+            pointerWithinComposerRef.current = true;
+            expandComposer();
+        }}
+        onPointerLeave={() => {
+            pointerWithinComposerRef.current = false;
+            scheduleComposerCompact();
+        }}
+        onPointerDownCapture={expandComposer}
+        onFocusCapture={expandComposer}
+        onBlurCapture={scheduleComposerCompact}
+        onKeyDownCapture={expandComposer}
+    >
         <div className="creation-chat-writing-surface">
-            <div className="creation-chat-editor">
-                <CanvasResourceMentionTextarea ref={props.composerFocusRef} value={props.prompt} references={props.references} mentionMenuWidth={400} sendOnEnter={false} onChange={props.setPrompt} onSubmit={props.onSubmit} containerClassName="creation-chat-mention-container" className="creation-chat-mention-editor creation-scrollbar" style={{ color: "var(--creation-text)" }} placeholder={props.placeholderOverride || (props.variant === "empty" ? emptyPlaceholder : placeholder)} aria-label="创作提示词，可使用 @ 引用当前参考内容或技能" spellCheck disabled={interactionBusy} activeDropReferenceId={dropTargetReferenceId} onReferenceFilesDrop={(reference, files) => { const target = props.references.find((item) => item.id === reference.id); if (target?.attachmentId) props.onReplaceReferenceFiles(target.attachmentId, files); }} />
-                {props.attachments.length || referencesSupported ? <div className={`creation-reference-panel${trackState.isExpanded ? " is-expanded" : ""}`} aria-busy={interactionBusy}>
+            <div className={`creation-chat-editor${firstLastFrameMode ? " is-first-last-frame-mode" : ""}`}>
+                <CanvasResourceMentionTextarea ref={props.composerFocusRef} value={props.prompt} references={props.references} mentionMenuWidth={400} sendOnEnter={false} onFocus={props.onPromptFocus} onChange={props.setPrompt} onSubmit={props.onSubmit} containerClassName="creation-chat-mention-container" className="creation-chat-mention-editor creation-scrollbar" style={{ color: "var(--creation-text)" }} placeholder={props.placeholderOverride || (props.variant === "empty" ? emptyPlaceholder : placeholder)} aria-label="创作提示词，可使用 @ 引用当前参考内容或技能" spellCheck disabled={interactionBusy} activeDropReferenceId={dropTargetReferenceId} onReferenceFilesDrop={(reference, files) => { const target = props.references.find((item) => item.id === reference.id); if (target?.attachmentId) props.onReplaceReferenceFiles(target.attachmentId, files); }} />
+                {firstLastFrameMode ? <FirstLastFrameReferenceSlots
+                    attachments={props.attachments}
+                    busy={interactionBusy}
+                    canAddMore={canAddMoreReferences}
+                    onOpenLibrary={props.onOpenLibrary}
+                    onPreview={previewAttachment}
+                    onRemove={props.onRemoveAttachment}
+                    onSwap={() => props.onReorderAttachments([props.attachments[1], props.attachments[0], ...props.attachments.slice(2)].filter(Boolean) as CreationAttachment[])}
+                /> : props.attachments.length || referencesSupported ? <div className={`creation-reference-panel${trackState.isExpanded ? " is-expanded" : ""}`} aria-busy={interactionBusy}>
                     {trackState.isExpanded ? <div className="creation-reference-panel-header">
                         <div className="creation-reference-filter-tabs" role="group" aria-label="筛选参考内容">
                             {([
@@ -1526,8 +1743,14 @@ function CreationComposer(props: ComposerProps) {
                     </button>
                 </Tooltip> : null}
 				<ModelPicker config={props.config} value={props.model} onChange={props.onModelChange} capability={props.mode} requirements={props.modelRequirements} className="creation-model-picker" placeholder={`选择${modeLabels[props.mode]}模型`} showSelectedPrice={false} showOptionPrices variant="creation" />
+                {props.mode === "video" && props.dreaminaVideoMode ? <DreaminaVideoModePicker value={props.dreaminaVideoMode} onChange={props.onDreaminaVideoModeChange} error={props.videoModeError} /> : null}
                 {props.mode === "video" || (props.mode === "image" && imageSettingsSupported) ? <GenerationSettingsMenu {...props} /> : null}
                 {props.mode === "video" ? <DurationMenu profile={props.videoProfile} seconds={props.seconds} onChange={props.setSeconds} /> : null}
+                {props.mode === "text" ? <>
+                    <Tooltip title={props.textStreaming ? "流式输出已开启" : "流式输出已关闭"}><button type="button" className="creation-chat-control" aria-pressed={props.textStreaming} onClick={() => props.setTextStreaming(!props.textStreaming)}><Waves /><span>流式</span></button></Tooltip>
+                    <Tooltip title={props.textThinking ? "思考已开启，会展示模型返回的推理摘要" : "开启模型思考"}><button type="button" className="creation-chat-control" aria-pressed={props.textThinking} onClick={() => props.setTextThinking(!props.textThinking)}><Brain /><span>思考</span></button></Tooltip>
+                </> : null}
+                {props.prompt.trim() || props.attachments.length || props.references.some((reference) => reference.active) ? <Tooltip title="清空提示词和参考内容"><button type="button" className="creation-chat-control is-clear" onClick={props.onClearComposer} disabled={interactionBusy} aria-label="清空提示词和参考内容"><Trash2 /><span>清空</span></button></Tooltip> : null}
             </div>
             <Button
                 type="text"
@@ -1549,8 +1772,10 @@ function CreationComposer(props: ComposerProps) {
         <CreationMediaPreviewModal url={previewUrl} type={previewType} onClose={() => setPreviewUrl("")} />
     </section>;
 
+    if (!promptOptimizerOpen) return composer;
+
     return (
-        <CanvasPromptOptimizerDrawer
+        <Suspense fallback={composer}><CanvasPromptOptimizerDrawer
             open={promptOptimizerOpen}
             prompt={props.prompt}
             generationMode={props.mode === "video" ? "video" : "image"}
@@ -1564,7 +1789,7 @@ function CreationComposer(props: ComposerProps) {
             onApply={props.setPrompt}
         >
             {composer}
-        </CanvasPromptOptimizerDrawer>
+        </CanvasPromptOptimizerDrawer></Suspense>
     );
 }
 
@@ -1577,7 +1802,16 @@ function ModePicker({ mode, onModeChange }: { mode: CreationMode; onModeChange: 
     ];
     const current = items.find((item) => item.mode === mode) || items[0];
     return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="bottomLeft" arrow={false} classNames={{ root: "creation-control-popover", container: "creation-control-popover-surface", content: "creation-control-popover-content" }} content={<div className="creation-mode-picker-menu" role="listbox" aria-label="选择生成类型">{items.map((item) => <button key={item.mode} type="button" role="option" aria-selected={item.mode === mode} className={item.mode === mode ? "is-selected" : ""} onClick={() => { onModeChange(item.mode); setOpen(false); }}><span className="creation-menu-icon">{item.icon}</span><span>{item.label}</span>{item.mode === mode ? <Check /> : null}</button>)}</div>}>
-        <button type="button" className="creation-chat-control is-mode" aria-label={`生成类型：${current.label}`}>{current.icon}<span>{current.label}</span><ChevronDown className={open ? "is-open" : ""} /></button>
+        <button type="button" className="creation-chat-control is-mode" aria-label={`生成类型：${current.label}`} aria-expanded={open}>{current.icon}<span>{current.label}</span><ChevronDown className={open ? "is-open" : ""} /></button>
+    </Popover>;
+}
+
+function DreaminaVideoModePicker({ value, onChange, error }: { value: DreaminaVideoMode; onChange: (mode: DreaminaVideoMode) => void; error: string }) {
+    const [open, setOpen] = useState(false);
+    const current = dreaminaVideoModeOptions.find((option) => option.value === value) || dreaminaVideoModeOptions[0];
+    const iconFor = (mode: (typeof dreaminaVideoModeOptions)[number]["value"]) => mode === "all_reference" ? <Sparkles /> : mode === "first_last_frames" ? <Clapperboard /> : mode === "smart_edit" ? <WandSparkles /> : mode === "long_video" ? <InfinityIcon /> : <Film />;
+    return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="bottomLeft" arrow={false} classNames={{ root: "creation-control-popover", container: "creation-control-popover-surface", content: "creation-control-popover-content" }} content={<div className="creation-mode-picker-menu creation-video-mode-picker-menu" role="listbox" aria-label="选择即梦视频生成模式">{dreaminaVideoModeOptions.map((option) => <button key={option.value} type="button" role="option" aria-selected={option.value === value} aria-disabled={!option.available} disabled={!option.available} className={`${option.value === value ? "is-selected" : ""}${!option.available ? " is-coming-soon" : ""}`} onClick={() => { if (!option.available) return; onChange(option.value); setOpen(false); }}><span className="creation-menu-icon">{iconFor(option.value)}</span><span className="creation-video-mode-copy"><span className="creation-video-mode-title"><strong>{option.label}</strong>{option.beta ? <em>Beta</em> : null}</span><small>{option.description}</small></span>{option.value === value ? <Check /> : null}</button>)}</div>}>
+        <button type="button" className={`creation-chat-control is-dreamina-video-mode${error ? " is-invalid" : ""}`} aria-label={`即梦视频模式：${current.label}`} aria-expanded={open} title={error || current.description}>{iconFor(current.value)}<span>{current.label}</span><ChevronDown className={open ? "is-open" : ""} /></button>
     </Popover>;
 }
 
@@ -1657,12 +1891,76 @@ function DurationMenu({ profile, seconds, onChange }: { profile: VideoCapability
     const min = profile.duration.selection === "range" ? profile.duration.min || 1 : Math.min(...fallbackPreset);
     const max = profile.duration.selection === "range" ? Math.max(min, profile.duration.max || min) : Math.max(...fallbackPreset);
     const step = Math.max(1, profile.duration.step || 1);
-    const durationControl = profile.duration.selection === "range" ? <>
-        <input className="h-8 w-full" style={{ accentColor: "var(--creation-text)" }} type="range" min={min} max={max} step={step} value={value} aria-label="视频时长（秒）" onChange={(event) => onChange(event.target.value)} />
-        <div className="flex justify-between px-0.5 text-[var(--fs-tiny)] text-[var(--creation-muted)]"><span>{min}s</span><span>{max}s</span></div>
-        <label className="creation-custom-value is-duration"><span>自定义时长</span><span className="creation-duration-custom-field"><input type="number" min={min} max={max} step={step} inputMode="numeric" value={seconds} onFocus={(event) => event.currentTarget.select()} onBlur={() => onChange(String(value))} onChange={(event) => onChange(event.target.value)} aria-label="自定义视频时长，单位秒" /><em>秒</em></span></label>
-    </> : <div className="creation-duration-choices">{presets.map((item) => <button key={item} type="button" className={item === value ? "is-selected" : ""} onClick={() => onChange(String(item))}>{item}s</button>)}</div>;
-    return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="bottom" arrow={false} classNames={{ root: "creation-control-popover", container: "creation-control-popover-surface", content: "creation-control-popover-content" }} content={<div className="creation-duration-menu"><div className="creation-duration-heading"><span>时长</span><strong>{value} 秒</strong></div>{durationControl}</div>}>
+    const [draftValue, setDraftValue] = useState(value);
+    const [draftInput, setDraftInput] = useState(String(value));
+    const draggingRef = useRef(false);
+    const ticks = useMemo(() => videoDurationScaleTicks(min, max, step), [max, min, step]);
+    const progressStyle = { "--creation-duration-progress": `${videoDurationScalePosition(draftValue, min, max)}%` } as CSSProperties;
+
+    useEffect(() => {
+        if (draggingRef.current) return;
+        setDraftValue(value);
+        setDraftInput(String(value));
+    }, [value]);
+
+    const commitDuration = (candidate: string | number) => {
+        const normalized = Number(normalizeVideoValue(profile, { seconds: String(candidate) }).seconds);
+        draggingRef.current = false;
+        setDraftValue(normalized);
+        setDraftInput(String(normalized));
+        onChange(String(normalized));
+    };
+
+    const durationControl = profile.duration.selection === "range" ? <div className="creation-duration-scale-layout">
+        <div className="creation-duration-scale">
+            <input
+                className="creation-duration-range"
+                style={progressStyle}
+                type="range"
+                min={min}
+                max={max}
+                step={step}
+                value={draftValue}
+                aria-label="视频时长（秒）"
+                aria-valuetext={`${draftValue} 秒`}
+                onPointerDown={() => { draggingRef.current = true; }}
+                onPointerUp={(event) => commitDuration(event.currentTarget.value)}
+                onPointerCancel={(event) => commitDuration(event.currentTarget.value)}
+                onChange={(event) => {
+                    const nextValue = Number(event.target.value);
+                    setDraftValue(nextValue);
+                    setDraftInput(String(nextValue));
+                    if (!draggingRef.current) commitDuration(nextValue);
+                }}
+            />
+            <div className="creation-duration-ticks" aria-hidden="true">
+                {ticks.map((tick) => <span key={tick.value} style={{ left: `${tick.position}%` }}><i /><em>{tick.value}</em></span>)}
+            </div>
+        </div>
+        <label className="creation-duration-value-field">
+            <input
+                type="number"
+                min={min}
+                max={max}
+                step={step}
+                inputMode="numeric"
+                value={draftInput}
+                onFocus={(event) => event.currentTarget.select()}
+                onChange={(event) => {
+                    setDraftInput(event.target.value);
+                    const nextValue = Number(event.target.value);
+                    if (Number.isFinite(nextValue)) setDraftValue(Math.min(max, Math.max(min, nextValue)));
+                }}
+                onBlur={() => commitDuration(draftInput)}
+                onKeyDown={(event) => {
+                    if (event.key === "Enter") event.currentTarget.blur();
+                }}
+                aria-label="自定义视频时长，单位秒"
+            />
+            <span>S</span>
+        </label>
+    </div> : <div className="creation-duration-choices">{presets.map((item) => <button key={item} type="button" className={item === value ? "is-selected" : ""} onClick={() => onChange(String(item))}>{item}s</button>)}</div>;
+    return <Popover open={open} onOpenChange={setOpen} trigger="click" placement="bottom" arrow={false} classNames={{ root: "creation-control-popover", container: "creation-control-popover-surface", content: "creation-control-popover-content" }} content={<div className={`creation-duration-menu${profile.duration.selection === "range" ? " has-scale" : ""}`}><div className="creation-duration-heading"><span>选择视频生成时长</span>{profile.duration.selection === "enum" ? <strong>{value} 秒</strong> : null}</div>{durationControl}</div>}>
         <button type="button" className="creation-chat-control is-duration" aria-label={`视频时长：${value}秒`}><Clock3 /><span>{value}s</span><ChevronDown className={open ? "is-open" : ""} /></button>
     </Popover>;
 }
@@ -1920,13 +2218,13 @@ function attachCreationTaskContexts(tasks: GenerationTask[], conversations: Crea
     });
 }
 
-async function materializeCreationTaskResults(tasks: GenerationTask[], signal?: AbortSignal): Promise<PersistedCreationTask[]> {
+async function materializeCreationTaskResults(runtime: CreationRuntime, tasks: GenerationTask[], signal?: AbortSignal): Promise<PersistedCreationTask[]> {
     return Promise.all(tasks.map(async (task): Promise<PersistedCreationTask> => {
         // 文本正文保存在 resultJson，不进入媒体资源化链路。
         if (task.status !== "succeeded" || !task.clientContext || task.type === "canvas_text") return task;
         try {
-            const materialized = await runGenerationConsumer(signal, (managedSignal) => materializeGenerationTaskAssets(task, managedSignal));
-            const creationResultUrls = generationTaskMaterializedUrls(materialized);
+            const materialized = await runtime.runGenerationConsumer(signal, (managedSignal) => runtime.materializeGenerationTaskAssets(task, managedSignal));
+            const creationResultUrls = runtime.generationTaskMaterializedUrls(materialized);
             return creationResultUrls.length ? { ...materialized, creationResultUrls } : materialized;
         } catch (error) {
             return { ...task, creationError: error instanceof Error ? error.message : "生成结果资源化失败" };
@@ -1934,7 +2232,7 @@ async function materializeCreationTaskResults(tasks: GenerationTask[], signal?: 
     }));
 }
 
-function reconcileCreationTaskMessages(conversations: CreationConversation[], tasks: PersistedCreationTask[]) {
+function reconcileCreationTaskMessages(runtime: CreationRuntime, conversations: CreationConversation[], tasks: PersistedCreationTask[]) {
     let changed = false;
     const next = conversations.map((conversation) => {
         let conversationChanged = false;
@@ -1945,7 +2243,7 @@ function reconcileCreationTaskMessages(conversations: CreationConversation[], ta
                 .filter((task) => taskIds.has(task.id) || (task.clientContext?.conversationId === conversation.id && task.clientContext.messageId === message.id))
                 .sort((left, right) => (left.clientContext?.batchIndex || 0) - (right.clientContext?.batchIndex || 0));
             if (message.role === "assistant" && message.mode === "text") {
-                const recovery = recoverCreationTextTask(message, matches);
+                const recovery = runtime.recoverCreationTextTask(message, matches);
                 if (!recovery) return message;
                 completedAt = matches.reduce((latest, task) => conversationTimestamp(task.updatedAt) > conversationTimestamp(latest) ? task.updatedAt : latest, completedAt);
                 conversationChanged = true;
@@ -1968,8 +2266,8 @@ function reconcileCreationTaskMessages(conversations: CreationConversation[], ta
                 return { ...message, status: "done" as const, content, resultUrls, error: undefined, taskIds: nextTaskIds };
             }
             if (matches.every((task) => task.status === "cancelled")) {
-                const localOnly = matches.find(isLocalDreaminaWaitStopped);
-                return { ...message, status: "cancelled" as const, content: localOnly ? localDreaminaCancellationMessage(localOnly) : "已停止", error: undefined, taskIds: nextTaskIds };
+                const localOnly = matches.find(runtime.isLocalDreaminaWaitStopped);
+                return { ...message, status: "cancelled" as const, content: localOnly ? runtime.localDreaminaCancellationMessage(localOnly) : "已停止", error: undefined, taskIds: nextTaskIds };
             }
             const failed = matches.find((task) => task.status === "failed" || task.creationError);
             return { ...message, status: "error" as const, content: "生成失败", error: generationErrorMessage(failed?.creationError || failed?.error || "任务已结束，但生成结果暂时无法读取"), taskIds: nextTaskIds };
