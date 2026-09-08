@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import { ConfigProvider, Tabs } from "antd";
 import { ArrowLeft, Play } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, Outlet, useLocation, useNavigate } from "react-router";
 
 import { BrandLogo } from "@/components/brand/brand-logo";
@@ -51,18 +51,46 @@ export function AuthScene() {
     const location = useLocation();
     const navigate = useNavigate();
     const reducedMotion = useReducedMotion();
-    const [videoActive, setVideoActive] = useState(false);
+    const videoRef = useRef<HTMLVideoElement>(null);
+    const [manualVideoActive, setManualVideoActive] = useState(false);
+    const [videoPlaying, setVideoPlaying] = useState(false);
     const [failedPosterURL, setFailedPosterURL] = useState("");
     const recovery = location.pathname === "/forgot-password";
     const activeTab = location.pathname === "/register" ? "register" : "login";
     const copy = recovery ? authCopy.recovery : activeTab === "register" ? authCopy.register : authCopy.login;
+    const automaticVideoActive = appearance.authVideoAutoplay && !reducedMotion;
+    const videoActive = Boolean(appearance.authVideoUrl && (automaticVideoActive || manualVideoActive));
+
+    useEffect(() => {
+        setManualVideoActive(false);
+        setVideoPlaying(false);
+    }, [appearance.authVideoUrl, appearance.authVideoAutoplay]);
+
+    const playVideo = () => {
+        setManualVideoActive(true);
+        requestAnimationFrame(() => {
+            void videoRef.current?.play().catch(() => setVideoPlaying(false));
+        });
+    };
 
     return (
         <main className="auth-scene h-dvh min-h-0 overflow-y-auto text-white lg:overflow-hidden">
             <div className="grid min-h-full lg:h-full lg:grid-cols-[minmax(0,1.32fr)_minmax(520px,1fr)]">
                 <section className="relative min-h-[250px] overflow-hidden sm:min-h-[320px] lg:min-h-0" aria-label={`${appearance.brandName}品牌影片`}>
                     {videoActive && appearance.authVideoUrl ? (
-                        <video className="absolute inset-0 size-full object-cover" src={appearance.authVideoUrl} poster={appearance.authVideoPosterUrl || undefined} autoPlay={!reducedMotion} muted loop playsInline preload="metadata" />
+                        <video
+                            ref={videoRef}
+                            className="absolute inset-0 size-full object-cover"
+                            src={appearance.authVideoUrl}
+                            poster={appearance.authVideoPosterUrl || undefined}
+                            autoPlay
+                            muted
+                            loop
+                            playsInline
+                            preload="metadata"
+                            onPlay={() => setVideoPlaying(true)}
+                            onPause={() => setVideoPlaying(false)}
+                        />
                     ) : appearance.authVideoPosterUrl && failedPosterURL !== appearance.authVideoPosterUrl ? (
                         <img className="absolute inset-0 size-full object-cover" src={appearance.authVideoPosterUrl} alt="" decoding="async" onError={() => setFailedPosterURL(appearance.authVideoPosterUrl)} />
                     ) : null}
@@ -76,12 +104,12 @@ export function AuthScene() {
                         <button
                             type="button"
                             className="inline-flex items-center gap-2 rounded-full border border-white/16 bg-black/20 px-3 py-1.5 text-[var(--fs-label)] text-white/76 backdrop-blur-xl transition hover:bg-black/35 disabled:cursor-default"
-                            onClick={() => setVideoActive(true)}
-                            disabled={videoActive || !appearance.authVideoUrl}
-                            aria-pressed={videoActive}
+                            onClick={playVideo}
+                            disabled={videoPlaying || !appearance.authVideoUrl}
+                            aria-pressed={videoPlaying}
                         >
                             <Play className="size-3 fill-current" />
-                            {videoActive ? "创作正在发生" : "播放品牌影片"}
+                            {videoPlaying ? "创作正在发生" : "播放品牌影片"}
                         </button>
                     </div>
                     <motion.div
