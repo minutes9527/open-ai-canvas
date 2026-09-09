@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v1.2.8-yc.1
+
+- 同步 `ddcat-ai/open-ai-canvas` 主线至提交 `e582d42`，纳入上游 `v1.2.8.rc1` 的画布本地媒体转换、Agent 附件与局部重绘、画布工具栏及多选整理优化。
+- 新增 Atlas Cloud Chat 协议插件，复用画布图片查看器，并完善请求日志筛选与展示；继续保留影策的 ChatGPT2API、Gemini Web2API、本机 Runtime、镜像发布和服务器更新链路。
+- 修复上游全部明细仍显示内部轮询记录、转换菜单数量断言过期，以及 macOS/Linux 解析 Windows Runtime Python 绝对路径错误的问题。
+
 ## v1.2.7-yc.3
 
 - 同步 `ddcat-ai/open-ai-canvas` 最新主线至提交 `897981b`，保留影策的镜像发布、本机 Runtime、ChatGPT2API 与 Gemini Web2API 接入能力。
