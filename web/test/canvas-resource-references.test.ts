@@ -8,6 +8,7 @@ import {
     buildOrderedCanvasResourceReferences,
     canvasResourceMentionToken,
     collectUpstreamVideoNodes,
+    imageGenerationReferenceConnections,
 } from "../src/lib/canvas/canvas-resource-references";
 import { canvasNodeToAsset } from "../src/lib/canvas/canvas-node-asset";
 import { buildNodeGenerationInputs } from "../src/components/canvas/canvas-node-generation";
@@ -271,5 +272,18 @@ describe("remove canvas resource mention tokens", () => {
         const [nextTarget] = applyCanvasConnectionPromptSync([imageA, imageB, target], previousConnections, [imageA, imageB, target], nextConnections).filter((node) => node.id === target.id);
 
         expect(nextTarget.metadata?.composerContent).toBe("比较 和 @图片1");
+    });
+});
+
+describe("image generation reference connections", () => {
+    test("把源节点的参考图连线复制到新结果，避免提示词图片丢失", () => {
+        const imageA = imageNode("image-a");
+        const imageB = imageNode("image-b");
+        const source = textNode("prompt");
+        const nodes = [imageA, imageB, source];
+        const connections = [connection(imageA.id, source.id), connection(imageB.id, source.id)];
+        const copied = imageGenerationReferenceConnections(source.id, "result", nodes, connections, () => "new-id");
+        expect(copied.map((item) => item.fromNodeId)).toEqual(["image-a", "image-b"]);
+        expect(copied.every((item) => item.toNodeId === "result")).toBe(true);
     });
 });
