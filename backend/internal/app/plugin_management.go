@@ -14,6 +14,8 @@ const (
 	PluginPortraitClearance   = "portrait-clearance"
 	PluginAIArtCritique       = "ai-art-critique"
 	PluginMediaConversion     = "media-conversion"
+	PluginFrameScriptVideo    = "framescript-video-engine"
+	PluginMockVideoRenderer   = "mock-video-renderer"
 
 	PluginOriginOfficial = "official"
 	PluginOriginSystem   = "system"
@@ -82,6 +84,14 @@ var officialApplicationPolicies = map[string]PluginManagementView{
 		ActivationScope: PluginScopeUser, ConfigurationScope: PluginConfigurationNone,
 	},
 	PluginMediaConversion: {
+		Origin: PluginOriginOfficial, Kind: PluginKindApplication,
+		ActivationScope: PluginScopeUser, ConfigurationScope: PluginConfigurationNone,
+	},
+	PluginFrameScriptVideo: {
+		Origin: PluginOriginOfficial, Kind: PluginKindApplication,
+		ActivationScope: PluginScopeUser, ConfigurationScope: PluginConfigurationUser,
+	},
+	PluginMockVideoRenderer: {
 		Origin: PluginOriginOfficial, Kind: PluginKindApplication,
 		ActivationScope: PluginScopeUser, ConfigurationScope: PluginConfigurationNone,
 	},

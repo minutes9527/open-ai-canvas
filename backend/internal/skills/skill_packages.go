@@ -123,7 +123,13 @@ func (s *Service) EnsureSkillPackages() error {
 			return fmt.Errorf("迁移技能 %s 文件包失败: %w", skill.ID, err)
 		}
 		if skill.CurrentVersionID != "" && skill.ContentHash == archive.ContentHash {
-			continue
+			version, versionErr := s.repo.SkillVersion(skill.CurrentVersionID)
+			if versionErr == nil {
+				content, readErr := s.readSkillArchiveEntry(version, version.EntryPath)
+				if readErr == nil && bytes.Equal(content, archive.Files["SKILL.md"]) {
+					continue
+				}
+			}
 		}
 		sourceType := "builtin"
 		if skill.Source == skillSourceUser {

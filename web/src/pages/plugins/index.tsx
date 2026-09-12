@@ -33,6 +33,7 @@ const categoryLabels: Record<string, string> = {
     "usage-observer": "用量观察",
     agent: "智能体",
     "import-export": "导入导出",
+    "video-plugin": "视频引擎",
 };
 
 const surfaceLabels: Record<string, string> = {
@@ -628,7 +629,7 @@ function toRegisteredPlugin(plugin: BackendPlugin): RegisteredPlugin {
 }
 
 function isOfficialApplicationPlugin(pluginId: string) {
-    return [RUNNINGHUB_PLUGIN_ID, COMFYUI_PLUGIN_ID, EAGLE_PLUGIN_ID, PROMPT_OPTIMIZER_PLUGIN_ID, "portrait-clearance", ART_CRITIQUE_PLUGIN_ID, MEDIA_CONVERSION_PLUGIN_ID].includes(pluginId);
+    return [RUNNINGHUB_PLUGIN_ID, COMFYUI_PLUGIN_ID, EAGLE_PLUGIN_ID, PROMPT_OPTIMIZER_PLUGIN_ID, "portrait-clearance", ART_CRITIQUE_PLUGIN_ID, MEDIA_CONVERSION_PLUGIN_ID, "framescript-video-engine", "mock-video-renderer"].includes(pluginId);
 }
 
 function pluginSourceLabel(plugin: RegisteredPlugin, state?: PluginState) {
@@ -651,6 +652,7 @@ function contributionKindsFor(manifest: PluginManifest | PluginManifestV2): stri
     if (contributions.usageObservers?.length) kinds.push("usage-observer");
     if (contributions.agents?.length) kinds.push("agent");
     if (contributions.importExport?.length) kinds.push("import-export");
+    if (contributions.videoPlugins?.length) kinds.push("video-plugin");
     return kinds;
 }
 
@@ -660,9 +662,11 @@ function providerCapabilitiesFor(manifest: PluginManifest | PluginManifestV2) {
 
 function pluginMatchesCategory(manifest: PluginManifest | PluginManifestV2, category: string) {
     const providerCapabilities = providerCapabilitiesFor(manifest);
+    const hasVideoPlugin = Boolean(manifest.contributes.videoPlugins?.length);
     const isPaymentProtocol = Boolean(manifest.contributes.paymentProviders?.length);
     if (category === "payment") return isPaymentProtocol;
-    if (category === "other") return !isPaymentProtocol && providerCapabilities.length === 0;
+    if (category === "other") return !isPaymentProtocol && providerCapabilities.length === 0 && !hasVideoPlugin;
+    if (category === "video") return providerCapabilities.includes("video") || hasVideoPlugin;
     return providerCapabilities.includes(category as "text" | "image" | "video" | "audio");
 }
 

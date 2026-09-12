@@ -1,4 +1,5 @@
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { renderVideoSkillEvidence, type VideoSkillEvidenceInput } from "@/lib/plugins/video-skill-evidence";
 import type { ResponseFunctionTool } from "@/services/api/image";
 import {
     getSkillBundle,
@@ -91,6 +92,8 @@ export type PrepareSkillRuntimeInput<P extends keyof SkillRuntimeResultByProfile
     prompt: string;
     skills: Skill[];
     selectedSkillIds?: string[];
+    /** Explicitly confirmed, bounded video evidence; it cannot select Skills or files. */
+    videoEvidence?: VideoSkillEvidenceInput;
 };
 
 export type SkillRuntimeToolResult = { ok: true; message: string; data?: unknown } | { ok: false; message: string };
@@ -203,11 +206,15 @@ export function createSkillRuntime(dependencies: SkillRuntimeDependencies = {
 
     return {
         async prepare<P extends keyof SkillRuntimeResultByProfile>(input: PrepareSkillRuntimeInput<P>): Promise<SkillRuntimeResultByProfile[P]> {
+            // Validate the evidence before asynchronous Skill reads. Source media
+            // never participates in skill selection or linked-file discovery.
+            const evidence = input.videoEvidence ? renderVideoSkillEvidence(input.videoEvidence) : undefined;
             const config = SKILL_RUNTIME_PROFILES[input.profile];
             const selectedSkills = resolveSkillMentions(input.prompt, input.skills, input.selectedSkillIds).slice(0, config.maxSkills);
             const adapter = deliveryAdapters[config.delivery as keyof typeof deliveryAdapters];
             if (!adapter) throw new Error(`技能运行模式 ${config.delivery} 不支持直接准备上下文`);
-            return adapter.prepare({ prompt: normalizeSkillTokens(input.prompt, input.skills), selectedSkills, config }) as Promise<SkillRuntimeResultByProfile[P]>;
+            const result = await adapter.prepare({ prompt: normalizeSkillTokens(input.prompt, input.skills), selectedSkills, config });
+            return (evidence ? { ...result, prompt: `${result.prompt}\n\n${evidence}` } : result) as SkillRuntimeResultByProfile[P];
         },
         agentTools(profile: SkillRuntimeProfile) {
             return toolAdapters[SKILL_RUNTIME_PROFILES[profile].delivery]?.tools || [];

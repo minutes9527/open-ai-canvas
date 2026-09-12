@@ -1,0 +1,61 @@
+{
+  "apiVersion": "yingce.plugin/v2",
+  "id": "framescript-video-engine",
+  "name": "FrameScript Video Engine",
+  "version": "0.5.0",
+  "description": "连接本机 FrameScript，提供候选抽帧、转录与确认后的逐帧视频理解。",
+  "documentation": "# FrameScript Video Engine\n\n当前能力：候选抽帧、语音转写、人工确认后的画面与提示词分析。\n\n浏览器只会把当前用户授权的已保存视频交给受信任本机适配器；候选帧必须经人工确认后，才会提交画面分析。抽帧基线仅使用画面差异，人物跟踪、姿态、OCR 与专业镜头检测仍属后续能力。\n\n`timeline`、`compile`、`render`、`export` 仅为预留能力，不可执行，也不代表可以输出 MP4。\n\n---\n\n# FrameScript Video Engine 接口\n\n插件贡献统一为 `type: \"video\"`。当前可执行能力为：\n\n- `adaptive-keyframe-extraction`\n- `transcription`\n- `video-analysis`\n- `scene-understanding`\n- `asset-analysis`\n- `prompt-extraction`\n\n准备阶段仅抽取候选帧及可选转录；画面分析必须使用当前视频、当前指纹和当前 revision 的人工确认快照。`timeline`、`compile`、`render`、`export` 是规划能力，当前不可调用。\n\n配置字段：`baseUrl`、`changeThreshold`、`samplingIntervalMs`。\n\n响应：准备阶段返回候选帧、时长、实际检测器与可选转录；确认后的分析返回逐帧说明与提示词。失败时不自动把帧按数组顺序重新配对。\n\n宿主在调用前检查插件启用状态、`media.read` 权限和素材归属。FrameScript 只可配置为本机 `http://localhost` 或 `http://127.0.0.1` 根地址，插件不会接收用户 API Key。\n\n<!-- YINGCE_MANIFEST_CONTRACT_START -->\n## Manifest 完整接口定义\n\n以下 JSON 与插件包内实际 `manifest.json` 逐字段一致，覆盖插件身份、权限、配置、鉴权、参数、校验、创建、Agent、查询、取消、结果下载、响应和 Agent 响应映射。`documentation` 字段的值就是当前完整文档；为避免文档在自身内部无限递归，JSON 中仅用等义占位文本表示正文。\n\n```json\n{\n  \"apiVersion\": \"yingce.plugin/v2\",\n  \"id\": \"framescript-video-engine\",\n  \"name\": \"FrameScript Video Engine\",\n  \"version\": \"0.5.0\",\n  \"description\": \"连接本机 FrameScript，提供候选抽帧、转录与确认后的逐帧视频理解。\",\n  \"documentation\": \"<当前插件的完整 documentation，由 README.md 与 docs/interface.md 拼接而成；为避免 JSON 递归，此处不重复展开正文。>\",\n  \"permissions\": [\n    \"media.read\"\n  ],\n  \"configuration\": {\n    \"fields\": [\n      {\n        \"name\": \"baseUrl\",\n        \"type\": \"url\",\n        \"label\": \"FrameScript 本机服务地址\",\n        \"required\": true,\n        \"default\": \"http://127.0.0.1:8001\",\n        \"description\": \"仅允许 localhost 或 127.0.0.1 的 HTTP 根地址。\"\n      },\n      {\n        \"name\": \"changeThreshold\",\n        \"type\": \"number\",\n        \"label\": \"候选帧变化阈值\",\n        \"default\": 0.32,\n        \"description\": \"0.01–1；当前基线使用画面差异，不代表人物追踪。\"\n      },\n      {\n        \"name\": \"samplingIntervalMs\",\n        \"type\": \"number\",\n        \"label\": \"扫描间隔（毫秒）\",\n        \"default\": 400,\n        \"description\": \"100–2000；影响采样精度，不决定最终保留帧数量。\"\n      }\n    ]\n  },\n  \"contributes\": {\n    \"videoPlugins\": [\n      {\n        \"id\": \"framescript-video-engine\",\n        \"label\": \"FrameScript Video Engine\",\n        \"type\": \"video\",\n        \"stage\": \"ready\",\n        \"capabilities\": [\n          \"adaptive-keyframe-extraction\",\n          \"video-analysis\",\n          \"transcription\",\n          \"prompt-extraction\",\n          \"scene-understanding\",\n          \"asset-analysis\"\n        ],\n        \"plannedCapabilities\": [\n          \"timeline\",\n          \"compile\",\n          \"render\",\n          \"export\"\n        ]\n      }\n    ]\n  }\n}\n```\n<!-- YINGCE_MANIFEST_CONTRACT_END -->\n",
+  "permissions": [
+    "media.read"
+  ],
+  "configuration": {
+    "fields": [
+      {
+        "name": "baseUrl",
+        "type": "url",
+        "label": "FrameScript 本机服务地址",
+        "required": true,
+        "default": "http://127.0.0.1:8001",
+        "description": "仅允许 localhost 或 127.0.0.1 的 HTTP 根地址。"
+      },
+      {
+        "name": "changeThreshold",
+        "type": "number",
+        "label": "候选帧变化阈值",
+        "default": 0.32,
+        "description": "0.01–1；当前基线使用画面差异，不代表人物追踪。"
+      },
+      {
+        "name": "samplingIntervalMs",
+        "type": "number",
+        "label": "扫描间隔（毫秒）",
+        "default": 400,
+        "description": "100–2000；影响采样精度，不决定最终保留帧数量。"
+      }
+    ]
+  },
+  "contributes": {
+    "videoPlugins": [
+      {
+        "id": "framescript-video-engine",
+        "label": "FrameScript Video Engine",
+        "type": "video",
+        "stage": "ready",
+        "capabilities": [
+          "adaptive-keyframe-extraction",
+          "video-analysis",
+          "transcription",
+          "prompt-extraction",
+          "scene-understanding",
+          "asset-analysis"
+        ],
+        "plannedCapabilities": [
+          "timeline",
+          "compile",
+          "render",
+          "export"
+        ]
+      }
+    ]
+  }
+}
