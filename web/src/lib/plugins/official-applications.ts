@@ -4,6 +4,8 @@ import { PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimiz
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 
 import { EDITOR_SHELL_PLUGIN_ID } from "./builtin/editor/editor-shell";
+import { FRAMESCRIPT_VIDEO_ENGINE_ID } from "./builtin/framescript-video-engine";
+import { MOCK_VIDEO_RENDERER_ID } from "./builtin/mock-video-renderer";
 
 /**
  * 官方“应用型”插件清单：这些插件在管理页按用户自主启停处理，而不是系统协议。
@@ -17,6 +19,8 @@ export const OFFICIAL_APPLICATION_PLUGIN_IDS = [
     PROMPT_OPTIMIZER_PLUGIN_ID,
     ART_CRITIQUE_PLUGIN_ID,
     EDITOR_SHELL_PLUGIN_ID,
+    FRAMESCRIPT_VIDEO_ENGINE_ID,
+    MOCK_VIDEO_RENDERER_ID,
 ] as const;
 
 const officialApplicationIdSet = new Set<string>(OFFICIAL_APPLICATION_PLUGIN_IDS);

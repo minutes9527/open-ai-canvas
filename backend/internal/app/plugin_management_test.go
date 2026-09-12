@@ -117,3 +117,11 @@ func TestEditorShellReportsPlatformAvailableWithoutPlatformState(t *testing.T) {
 		t.Fatalf("editor shell reported as admin-disabled: %#v", state)
 	}
 }
+
+func TestFrameScriptVideoUsesUserConfiguration(t *testing.T) {
+	policy := pluginManagement(PluginFrameScriptVideo, PluginOriginOfficial)
+	if policy.Origin != PluginOriginOfficial || policy.Kind != PluginKindApplication ||
+		policy.ActivationScope != PluginScopeUser || policy.ConfigurationScope != PluginConfigurationUser {
+		t.Fatalf("FrameScript video plugin policy = %#v", policy)
+	}
+}

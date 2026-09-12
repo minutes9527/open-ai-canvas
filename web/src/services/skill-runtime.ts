@@ -1,4 +1,5 @@
 import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
+import { renderVideoSkillEvidence, type VideoSkillEvidenceInput } from "@/lib/plugins/video-skill-evidence";
 import {
     getSkillFile,
     listSkillFiles,

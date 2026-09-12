@@ -8,6 +8,7 @@ import { useEffect, useMemo, useState } from "react";
 import { PaginationBar } from "@/components/layout/workspace-page";
 import "@/lib/plugins/builtin";
 import { EAGLE_PLUGIN_ID } from "@/lib/plugins/builtin/eagle";
+import { FRAMESCRIPT_VIDEO_ENGINE_ID } from "@/lib/plugins/builtin/framescript-video-engine";
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { isOfficialApplicationPluginId } from "@/lib/plugins/official-applications";
 import { listRegisteredPlugins } from "@/lib/plugins/plugin-registry";
@@ -368,7 +369,7 @@ function mergePlugins(remote: BackendPlugin[]): AdminPluginItem[] {
                 origin: "official",
                 kind: application ? "application" : "protocol",
                 activationScope: application ? "user" : "system",
-                configurationScope: application ? (plugin.manifest.id === EAGLE_PLUGIN_ID || plugin.manifest.id === RUNNINGHUB_PLUGIN_ID ? "user" : "none") : "system",
+                configurationScope: application ? (plugin.manifest.id === EAGLE_PLUGIN_ID || plugin.manifest.id === RUNNINGHUB_PLUGIN_ID || plugin.manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID ? "user" : "none") : "system",
             },
         });
     }
