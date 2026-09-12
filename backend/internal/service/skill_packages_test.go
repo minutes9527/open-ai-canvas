@@ -3,6 +3,8 @@ package service
 import (
 	"archive/zip"
 	"bytes"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"infinite-canvas/backend/internal/model"
@@ -125,6 +127,62 @@ func TestEnsureSkillPackagesMigratesAndRefreshesBuiltinSkills(t *testing.T) {
 	if refreshed.ContentHash != wantArchive.ContentHash || refreshed.CurrentVersionID == "" {
 		t.Fatalf("builtin package was not refreshed: %#v", refreshed)
 	}
+}
+
+func TestEnsureSkillPackagesRebuildsMissingBuiltinArchive(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.AutoMigrate(&model.Skill{}, &model.SkillVersion{}, &model.SkillFile{}); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	svc := New(repository.New(db), dataDir, nil)
+	builtin := model.Skill{ID: kernel.NewID(), Name: "内置导演", Description: "内置工作流", Instruction: "# 内置导演\n\n第一版", Status: skillStatusEnabled, Source: 3}
+	if err := db.Create(&builtin).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.EnsureSkillPackages(); err != nil {
+		t.Fatal(err)
+	}
+	var first model.Skill
+	if err := db.First(&first, "id = ?", builtin.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	firstVersion, err := svc.repo.SkillVersion(first.CurrentVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstArchive := filepath.Join(dataDir, "skill-packages", filepath.FromSlash(firstVersion.PackageKey))
+	if err := os.Remove(firstArchive); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := svc.EnsureSkillPackages(); err != nil {
+		t.Fatal(err)
+	}
+	assertSkillVersionCount(t, db, builtin.ID, 2)
+	var rebuilt model.Skill
+	if err := db.First(&rebuilt, "id = ?", builtin.ID).Error; err != nil {
+		t.Fatal(err)
+	}
+	if rebuilt.CurrentVersionID == first.CurrentVersionID {
+		t.Fatal("missing archive did not create a replacement version")
+	}
+	rebuiltVersion, err := svc.repo.SkillVersion(rebuilt.CurrentVersionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rebuiltArchive := filepath.Join(dataDir, "skill-packages", filepath.FromSlash(rebuiltVersion.PackageKey))
+	if _, err := os.Stat(rebuiltArchive); err != nil {
+		t.Fatalf("rebuilt archive is unavailable: %v", err)
+	}
+	if err := svc.EnsureSkillPackages(); err != nil {
+		t.Fatal(err)
+	}
+	assertSkillVersionCount(t, db, builtin.ID, 2)
 }
 
 func assertSkillVersionCount(t *testing.T, db *gorm.DB, skillID string, want int64) {

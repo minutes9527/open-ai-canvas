@@ -113,6 +113,13 @@ func LoadInstalledProviders(data []byte, resolve AdapterResolver) ([]Adapter, er
 		return []Adapter{metadataAdapter{metadata: manifest.Metadata, delegate: adapter}}, nil
 	}
 	if len(manifest.Contributes.Providers) == 0 {
+		// Video engines are capability-only plugin contributions. They are
+		// registered by the plugin host, not exposed as model-provider adapters.
+		// Preserve the declarative adapter path for other providerless plugins,
+		// such as Canvas extensions.
+		if len(manifest.Contributes.VideoPlugins) > 0 {
+			return nil, nil
+		}
 		adapter, err := loadDeclarativeManifest(manifest)
 		if err != nil {
 			return nil, err
@@ -257,6 +264,9 @@ func ValidateManifest(manifest Manifest) error {
 	if len(manifest.Contributes.Providers) == 0 && !hasNonProviderContribution(manifest.Contributes) {
 		return fmt.Errorf("plugin must declare at least one contribution")
 	}
+	if err := validateVideoPluginContributions(manifest); err != nil {
+		return err
+	}
 	if backend := strings.TrimSpace(manifest.Runtime.Backend); backend != "" && backend != "declarative" && backend != "rpc" && backend != "wasm" && backend != "trusted-backend" && !strings.HasPrefix(backend, "host:") {
 		return fmt.Errorf("unsupported plugin backend %q", backend)
 	}
@@ -359,6 +369,62 @@ func validatePaymentProviderContributions(manifest Manifest) error {
 	return nil
 }
 
+func validateVideoPluginContributions(manifest Manifest) error {
+	validCapabilities := map[string]struct{}{
+		"adaptive-keyframe-extraction": {}, "video-analysis": {}, "transcription": {}, "prompt-extraction": {}, "scene-understanding": {}, "asset-analysis": {},
+		"timeline": {}, "compile": {}, "render": {}, "export": {},
+	}
+	permissions := map[string][]string{
+		"adaptive-keyframe-extraction": {"media.read"}, "video-analysis": {"media.read"}, "transcription": {"media.read"}, "prompt-extraction": {"media.read"}, "scene-understanding": {"media.read"}, "asset-analysis": {"media.read"},
+		"timeline": {"media.read"}, "compile": {"media.read"}, "render": {"media.read", "generation.run"}, "export": {"media.read", "generation.run"},
+	}
+	granted := make(map[string]struct{}, len(manifest.Permissions))
+	for _, permission := range manifest.Permissions {
+		granted[permission] = struct{}{}
+	}
+	seen := make(map[string]struct{}, len(manifest.Contributes.VideoPlugins))
+	for _, plugin := range manifest.Contributes.VideoPlugins {
+		if !validManifestIdentifier(plugin.ID) || strings.TrimSpace(plugin.Label) == "" || plugin.Type != "video" {
+			return fmt.Errorf("video plugin contribution requires a valid id, label and video type")
+		}
+		if _, exists := seen[plugin.ID]; exists {
+			return fmt.Errorf("duplicate video plugin contribution %q", plugin.ID)
+		}
+		seen[plugin.ID] = struct{}{}
+		if plugin.Stage != "scaffold" && plugin.Stage != "ready" {
+			return fmt.Errorf("video plugin contribution %q has unsupported stage %q", plugin.ID, plugin.Stage)
+		}
+		if len(plugin.Capabilities) == 0 {
+			return fmt.Errorf("video plugin contribution %q requires capabilities", plugin.ID)
+		}
+		declared := make(map[string]struct{}, len(plugin.Capabilities)+len(plugin.PlannedCapabilities))
+		for _, capability := range plugin.Capabilities {
+			if _, ok := validCapabilities[capability]; !ok {
+				return fmt.Errorf("video plugin contribution %q has unsupported capability %q", plugin.ID, capability)
+			}
+			if _, duplicate := declared[capability]; duplicate {
+				return fmt.Errorf("video plugin contribution %q repeats capability %q", plugin.ID, capability)
+			}
+			declared[capability] = struct{}{}
+			for _, permission := range permissions[capability] {
+				if _, ok := granted[permission]; !ok {
+					return fmt.Errorf("video plugin contribution %q capability %q requires permission %q", plugin.ID, capability, permission)
+				}
+			}
+		}
+		for _, capability := range plugin.PlannedCapabilities {
+			if _, ok := validCapabilities[capability]; !ok {
+				return fmt.Errorf("video plugin contribution %q has unsupported planned capability %q", plugin.ID, capability)
+			}
+			if _, duplicate := declared[capability]; duplicate {
+				return fmt.Errorf("video plugin contribution %q repeats planned capability %q", plugin.ID, capability)
+			}
+			declared[capability] = struct{}{}
+		}
+	}
+	return nil
+}
+
 func normalizeManifest(manifest *Manifest) error {
 	if manifest == nil {
 		return fmt.Errorf("plugin manifest is missing")
@@ -398,7 +464,7 @@ func normalizeManifestForProvider(manifest *Manifest, index int) error {
 }
 
 func hasNonProviderContribution(contributes ManifestContributions) bool {
-	return len(contributes.PaymentProviders) > 0 || len(contributes.Workflows) > 0 || len(contributes.CanvasNodes) > 0 || len(contributes.Transforms) > 0 || len(contributes.Commands) > 0 || len(contributes.AssetSources) > 0 || len(contributes.UsageObservers) > 0 || len(contributes.AICapabilities) > 0 || len(contributes.Agents) > 0 || len(contributes.ImportExport) > 0
+	return len(contributes.VideoPlugins) > 0 || len(contributes.PaymentProviders) > 0 || len(contributes.Workflows) > 0 || len(contributes.CanvasNodes) > 0 || len(contributes.Transforms) > 0 || len(contributes.Commands) > 0 || len(contributes.AssetSources) > 0 || len(contributes.UsageObservers) > 0 || len(contributes.AICapabilities) > 0 || len(contributes.Agents) > 0 || len(contributes.ImportExport) > 0
 }
 
 func operationSummary(operation ManifestOperation) string {

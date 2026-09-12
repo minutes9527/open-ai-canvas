@@ -1,17 +1,10 @@
 import type { Asset } from "@/stores/use-asset-store";
+import type { VideoPluginContribution, VideoPlugin } from "./video-plugin";
 
 export const PLUGIN_API_VERSION = "yingce.plugin/v1" as const;
 export const PLUGIN_API_VERSION_V2 = "yingce.plugin/v2" as const;
 
-export type EditorSlotKind =
-    | "timeline-panel"
-    | "preview-renderer"
-    | "inspector"
-    | "asset-ingest"
-    | "subtitle-tool"
-    | "transcription-provider"
-    | "export-renderer"
-    | "ai-assistant";
+export type EditorSlotKind = "timeline-panel" | "preview-renderer" | "inspector" | "asset-ingest" | "subtitle-tool" | "transcription-provider" | "export-renderer" | "ai-assistant";
 
 export type EditorSlotContribution = {
     slot: EditorSlotKind;
@@ -31,7 +24,7 @@ export type PluginManifestV2 = Omit<PluginManifest, "apiVersion" | "contributes"
     contributes: PluginContributionsV2;
 };
 
-export type PluginContributionKind = "provider" | "payment-provider" | "workflow" | "canvas-node" | "transform" | "command" | "asset-source" | "usage-observer" | "ai-capability" | "agent" | "import-export";
+export type PluginContributionKind = "provider" | "payment-provider" | "workflow" | "canvas-node" | "transform" | "command" | "asset-source" | "usage-observer" | "ai-capability" | "agent" | "import-export" | "video-plugin";
 export type PluginSurface = "node" | "fullscreen" | "hybrid" | "asset-source" | "settings" | "wallet";
 export type ProtocolCapability = "text" | "image" | "video" | "audio";
 export type ProtocolScope = "admin.system-channel" | "user.custom-channel" | "canvas" | "creation" | "agent" | string;
@@ -117,6 +110,7 @@ export type PluginTransformContribution = {
     runtime: PluginRuntime;
 };
 export type PluginContributions = {
+    videoPlugins?: VideoPluginContribution[];
     providers?: PluginProviderContribution[];
     paymentProviders?: PluginPaymentProviderContribution[];
     workflows?: PluginWorkflowContribution[];
@@ -218,11 +212,25 @@ export type PluginHostServices = {
         text?: PluginAiTextService;
     };
     media?: {
-        resolve: (reference: { url?: string; dataUrl?: string; kind?: string }, signal?: AbortSignal) => Promise<{ dataUrl: string; mimeType: string }>;
+        /**
+         * Resolves an owned, saved media reference. Runtime plugins receive the
+         * bytes only after the host has checked the active user and media.read;
+         * storage keys and provider URLs are deliberately never exposed.
+         */
+        resolve: (reference: PluginMediaReference, signal?: AbortSignal) => Promise<ResolvedPluginMedia>;
     };
     usage?: {
         list: (scope?: string) => Promise<ReadonlyArray<Record<string, unknown>>>;
     };
+};
+
+export type PluginMediaReference = { kind: "asset" | "resource"; id: string };
+export type ResolvedPluginMedia = {
+    blob: Blob;
+    kind: "image" | "video" | "audio" | "file";
+    fileName: string;
+    mimeType: string;
+    durationMs?: number;
 };
 
 export type PluginHostContext = {
@@ -325,6 +333,8 @@ export type RegisteredPlugin = {
     deactivate?: (context: PluginHostContext) => Promise<void> | void;
     createAssetSource?: (context: PluginHostContext) => AssetSourceProvider;
     createPromptOptimizer?: (context: PluginHostContext) => PromptOptimizerProvider;
+    /** Only bundled host bindings execute; uploaded manifests remain metadata. */
+    createVideoPlugin?: (context: PluginHostContext, contributionId: string) => VideoPlugin;
     /** v2 插件由注册器从 manifest 提取的编辑器插槽声明（v1 插件无此字段）。 */
     editorSlots?: EditorSlotContribution[];
     /** v2 插件 UI 插槽的实际渲染函数由插件 activate() 阶段经 registerEditorSlot 提供。 */

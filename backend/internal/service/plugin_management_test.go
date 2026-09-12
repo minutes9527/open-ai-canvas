@@ -76,3 +76,11 @@ func TestArtCritiqueIsUserToggleableApplication(t *testing.T) {
 		t.Fatalf("AI art critique policy = %#v", policy)
 	}
 }
+
+func TestFrameScriptVideoUsesUserConfiguration(t *testing.T) {
+	policy := pluginManagement(PluginFrameScriptVideo, PluginOriginOfficial)
+	if policy.Origin != PluginOriginOfficial || policy.Kind != PluginKindApplication ||
+		policy.ActivationScope != PluginScopeUser || policy.ConfigurationScope != PluginConfigurationUser {
+		t.Fatalf("FrameScript video plugin policy = %#v", policy)
+	}
+}
