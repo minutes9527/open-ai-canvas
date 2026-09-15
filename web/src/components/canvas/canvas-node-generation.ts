@@ -16,6 +16,9 @@ import { isCanvasWorkflowProvider } from "@/lib/canvas/canvas-workflow";
 import { audioFileExtension } from "@/lib/character-voice-formats";
 import type { ModelReferenceLimits } from "@/lib/model-selection";
 import type { Asset } from "@/stores/use-asset-store";
+import type { VideoSkillEvidenceInput } from "@/lib/plugins/video-skill-evidence";
+import { FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE, sameFrameScriptVideoSourceBinding } from "@/lib/framescript-video-review/contracts";
+import { resourceIdFromStorageKey } from "@/services/api/resources";
 
 export type CharacterGenerationReference = {
     nodeId: string;
@@ -48,6 +51,7 @@ export type NodeGenerationContext = {
     imageCount: number;
     videoCount: number;
     audioCount: number;
+    videoEvidence?: VideoSkillEvidenceInput;
 };
 
 export type NodeGenerationInput = {
@@ -62,6 +66,7 @@ export type NodeGenerationInput = {
     video?: ReferenceVideo;
     audio?: ReferenceAudio;
     character?: CharacterGenerationReference;
+    videoEvidence?: VideoSkillEvidenceInput;
 };
 
 export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData[], connections: CanvasConnection[], prompt: string, assets: Asset[], promptOnly = false): NodeGenerationContext {
@@ -111,6 +116,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
     const referenceImages = connectedInputs.map((input) => input.image).filter((image): image is ReferenceImage => Boolean(image));
     const referenceVideos = connectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = connectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
+    const videoEvidence = connectedInputs.map((input) => input.videoEvidence).find(Boolean);
 
     return {
         prompt: promptOnly ? prompt : upstreamText ? `${basePrompt}\n\n${upstreamText}` : basePrompt,
@@ -124,6 +130,7 @@ export function buildNodeGenerationContext(nodeId: string, nodes: CanvasNodeData
         imageCount: referenceImages.length,
         videoCount: referenceVideos.length,
         audioCount: referenceAudios.length,
+        videoEvidence,
     };
 }
 
@@ -260,6 +267,7 @@ function buildComposerGenerationContext(
     const referenceVideos = selectedInputs.map((input) => input.video).filter((video): video is ReferenceVideo => Boolean(video));
     const referenceAudios = selectedInputs.map((input) => input.audio).filter((audio): audio is ReferenceAudio => Boolean(audio));
     const characterReferences = selectedInputs.map((input) => input.character).filter((item): item is CharacterGenerationReference => Boolean(item));
+    const videoEvidence = [...selectedInputs, ...inputs].map((input) => input.videoEvidence).find(Boolean);
 
     if (!hasToken && !textBlocks.length && !selectedInputs.length) {
         return {
@@ -274,6 +282,7 @@ function buildComposerGenerationContext(
             imageCount: 0,
             videoCount: 0,
             audioCount: 0,
+            videoEvidence,
         };
     }
 
@@ -289,6 +298,7 @@ function buildComposerGenerationContext(
         imageCount: referenceImages.length,
         videoCount: referenceVideos.length,
         audioCount: referenceAudios.length,
+        videoEvidence,
     };
 }
 
@@ -387,9 +397,36 @@ function buildGenerationInputs(resourceNodes: CanvasNodeData[], nodes: CanvasNod
         const audio = readReferenceAudio(node);
         if (audio) return [{ nodeId: node.id, type: "audio" as const, title: node.title, audio }];
         const text = readNodeTextInput(node);
+        if (node.type === FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE) {
+            const evidence = readVideoEvidence(node, nodes, connections);
+            const completedButStale = node.metadata?.framescriptVideoReview?.status === "completed" && !evidence;
+            if (!completedButStale && (text || evidence)) return [{ nodeId: node.id, type: "text" as const, title: node.title, text, videoEvidence: evidence }];
+            if (completedButStale) return [];
+        }
         if (text) return [{ nodeId: node.id, type: "text" as const, title: node.title, text }];
         return [];
     });
+}
+
+function readVideoEvidence(node: CanvasNodeData, nodes: CanvasNodeData[], connections: CanvasConnection[]): VideoSkillEvidenceInput | undefined {
+    const state = node.metadata?.framescriptVideoReview;
+    if (node.type !== FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE || state?.status !== "completed" || !state.source || !state.draft || !state.review || !state.breakdown) return undefined;
+    const sourceNode = connections
+        .filter((connection) => connection.toNodeId === node.id)
+        .map((connection) => nodes.find((candidate) => candidate.id === connection.fromNodeId))
+        .find((candidate): candidate is CanvasNodeData => candidate?.type === CanvasNodeType.Video);
+    if (!sourceNode || state.sourceNodeId !== sourceNode.id) return undefined;
+    const currentBinding = {
+        nodeId: sourceNode.id,
+        storageKey: sourceNode.metadata?.storageKey || undefined,
+        assetId: sourceNode.metadata?.assetId || undefined,
+    };
+    if (!sameFrameScriptVideoSourceBinding(state.sourceBinding, currentBinding)) return undefined;
+    const currentSource = resourceIdFromStorageKey(sourceNode.metadata?.storageKey)
+        ? { kind: "resource" as const, id: resourceIdFromStorageKey(sourceNode.metadata?.storageKey)! }
+        : sourceNode.metadata?.assetId ? { kind: "asset" as const, id: sourceNode.metadata.assetId } : undefined;
+    if (!currentSource || state.source.kind !== currentSource.kind || state.source.id !== currentSource.id) return undefined;
+    return { draft: state.draft, review: state.review, breakdown: state.breakdown };
 }
 
 function mergeGenerationInputs(...groups: NodeGenerationInput[][]) {
@@ -564,6 +601,7 @@ export async function hydrateNodeGenerationContext(context: NodeGenerationContex
 function readNodeTextInput(node: CanvasNodeData) {
     if (node.type === CanvasNodeType.Text) return node.metadata?.content || node.metadata?.prompt || "";
     if (node.type === CanvasNodeType.Skill) return readSkillInput(node);
+    if (getNodeResourceKind(node) === "text") return node.metadata?.content || node.metadata?.prompt || "";
     return node.metadata?.prompt || "";
 }
 

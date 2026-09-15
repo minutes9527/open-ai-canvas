@@ -22,7 +22,7 @@ export class VideoReviewWorkflow {
         if (!operations.length || operations.some((operation) => !["video-analysis", "scene-understanding", "asset-analysis", "prompt-extraction"].includes(operation))) {
             throw new VideoPluginError("invalid-input", "筛选后仅允许画面分析，不重复抽帧或转录");
         }
-        const analysis = await this.pipeline.analyze(provider, { media: draftSnapshot.source, operations, review: reviewSnapshot }, options);
+        const analysis = await this.pipeline.analyze(provider, { media: draftSnapshot.source, operations, review: reviewSnapshot, reviewDraft: draftSnapshot }, options);
         return structuredClone({
             schema: "yingce.video-breakdown", version: 1, review: reviewSnapshot, transcript: draftSnapshot.transcript,
             screenText: draftSnapshot.screenText.filter((entry) => reviewSnapshot.frames.some((frame) => frame.id === entry.frameId)),

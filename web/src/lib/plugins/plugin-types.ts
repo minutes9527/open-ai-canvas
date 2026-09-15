@@ -1,5 +1,6 @@
 import type { Asset } from "@/stores/use-asset-store";
 import type { VideoPluginContribution, VideoPlugin } from "./video-plugin";
+import type { CanvasResourceKind } from "@/lib/canvas/canvas-resource-references";
 
 export const PLUGIN_API_VERSION = "yingce.plugin/v1" as const;
 export const PLUGIN_API_VERSION_V2 = "yingce.plugin/v2" as const;
@@ -96,12 +97,18 @@ export type PluginCanvasNodeContribution = {
     defaultSize: { width: number; height: number };
     schema: Record<string, unknown>;
     renderer: "declarative" | "sandbox";
+    /** Generated/result-only nodes stay out of the manual add-node menu. */
+    showInCreateMenu?: boolean;
     /** Optional input contract for nodes that consume one or more media kinds. */
     acceptsInputKind?: "image" | "video" | "audio" | "text" | Array<"image" | "video" | "audio" | "text">;
     /** Optional maximum number of direct inputs. */
     maxInputCount?: number;
     /** Analysis/sink nodes can hide the right-side output connection. */
     showOutputConnection?: boolean;
+    /** The completed node can be referenced by downstream nodes as this resource kind. */
+    resourceKind?: CanvasResourceKind;
+    /** The value counted when this node is used as a downstream input. */
+    inputKind?: "image" | "video" | "audio" | "text";
 };
 export type PluginTransformContribution = {
     id: string;
@@ -132,6 +139,7 @@ export type PluginPermission =
     | "asset.upload"
     | "generation.run"
     | "ai.text"
+    | "ai.audio"
     | "media.read"
     | "usage.read"
     | "payment.create"
@@ -207,9 +215,23 @@ export type PluginAiTextService = {
     requestToolResponse: (request: PluginTextRequest) => Promise<PluginTextResponse>;
 };
 
+export type PluginAudioTranscriptionRequest = {
+    model?: string;
+    file: Blob;
+    fileName: string;
+    signal?: AbortSignal;
+};
+
+export type PluginAudioTranscriptSegment = { startMs: number; endMs: number; text: string };
+export type PluginAudioTranscriptionResponse = { text: string; segments?: PluginAudioTranscriptSegment[] };
+export type PluginAiAudioService = {
+    transcribe: (request: PluginAudioTranscriptionRequest) => Promise<PluginAudioTranscriptionResponse>;
+};
+
 export type PluginHostServices = {
     ai?: {
         text?: PluginAiTextService;
+        audio?: PluginAiAudioService;
     };
     media?: {
         /**

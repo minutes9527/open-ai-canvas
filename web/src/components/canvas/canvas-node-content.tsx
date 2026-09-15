@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { AlertCircle, BookOpenCheck, Clock3, Download, FileText, Image as ImageIcon, LoaderCircle, Music2, Pencil, Play, RefreshCw, Video } from "lucide-react";
 
 import { VideoPlayer } from "@/components/video-player";
@@ -39,10 +39,15 @@ import { PortraitClearanceNodeContent } from "./nodes/portrait-clearance-node";
 import { ArtCritiqueNodeContent } from "./nodes/ai-art-critique-node";
 import { MediaConversionNodeContent } from "./nodes/media-conversion-node";
 import { MEDIA_CONVERSION_NODE_TYPE } from "@/lib/media-conversion/contracts";
+import { FRAMESCRIPT_STORYBOARD_NODE_TYPE, FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE } from "@/lib/framescript-video-review/contracts";
+import { FrameScriptVideoReviewNodeContent } from "./nodes/framescript-video-review-node";
+import { FrameScriptStoryboardNodeContent } from "./nodes/framescript-storyboard-node";
 
 export type CanvasNodeContentProps = {
     node: CanvasNodeData;
     theme: CanvasTheme;
+    scale?: number;
+    onConnectStart?: (event: ReactPointerEvent, nodeId: string, handleType: "source" | "target", handleId?: string, anchorRatio?: number) => void;
     isEditingContent: boolean;
     textareaRef: RefObject<HTMLTextAreaElement | null>;
     isBatchRoot: boolean;
@@ -67,6 +72,7 @@ export type CanvasNodeContentProps = {
 
 export function CanvasNodeContent(props: CanvasNodeContentProps) {
     if (props.node.metadata?.fileUpload) return <CanvasFileUploadContent node={props.node} theme={props.theme} reduceMotion={props.reduceMediaEffects} />;
+    if (props.node.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE) return <FrameScriptStoryboardNodeContent node={props.node} scale={props.scale || 1} onConnectStart={props.onConnectStart} />;
     const hasCustomContent = props.node.type === CanvasNodeType.Config
         || props.node.type === CanvasNodeType.Script
         || Boolean(props.node.metadata?.directorSceneId)
@@ -77,6 +83,7 @@ export function CanvasNodeContent(props: CanvasNodeContentProps) {
     if (props.node.type === PORTRAIT_CLEARANCE_NODE_TYPE) return <PortraitClearanceNodeContent node={props.node} />;
     if (props.node.type === ART_CRITIQUE_NODE_TYPE) return <ArtCritiqueNodeContent node={props.node} />;
     if (props.node.type === MEDIA_CONVERSION_NODE_TYPE) return <MediaConversionNodeContent node={props.node} theme={props.theme} />;
+    if (props.node.type === FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE) return <FrameScriptVideoReviewNodeContent node={props.node} />;
     if (props.isBatchRoot) return <ImageNodeContent {...props} />;
     if (props.node.metadata?.status === "loading") return <LoadingContent node={props.node} theme={props.theme} onOpenTaskDetails={props.onOpenTaskDetails} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onReloadResource={props.onReloadResource} />;

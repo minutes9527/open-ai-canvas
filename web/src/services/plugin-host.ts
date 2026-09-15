@@ -1,14 +1,43 @@
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ToolChoice } from "@/services/api/image";
+import { createChannelTransport } from "@/services/api/channel-transport";
 import { pluginStorageFor } from "@/lib/plugins/plugin-storage";
 import { getMediaBlob } from "@/services/file-storage";
 import { getResource, resourceStorageKey } from "@/services/api/resources";
 import { loadAssetsForUse } from "@/services/user-data-sync";
-import type { AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, encodeChannelModel, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import type { PluginHostContext, PluginInstallation, PluginMediaReference, PluginTextRequest, RegisteredPlugin, ResolvedPluginMedia } from "@/lib/plugins/plugin-types";
 
 export function createPluginHostContext(plugin: RegisteredPlugin, installation: PluginInstallation, aiConfig: AiConfig): PluginHostContext {
     const permissions = new Set(plugin.manifest.permissions);
+    const resolvePluginModelConfig = (model?: string) => {
+        const channelId = typeof installation.config.channelId === "string" ? installation.config.channelId.trim() : "";
+        if (!channelId) throw new Error("FrameScript 尚未关联 Canvas 系统渠道，请先在插件设置中选择渠道");
+        const channel = aiConfig.channels.find((candidate) => candidate.id === channelId && candidate.scope === "system" && candidate.enabled !== false);
+        if (!channel) throw new Error("FrameScript 关联的 Canvas 系统渠道不存在或已停用");
+        const requested = typeof model === "string" && model.trim()
+            ? modelOptionName(model).trim()
+            : modelOptionName(String(installation.config.visionModel || "")).trim();
+        if (!requested) {
+            throw new Error(`FrameScript 模型不在关联系统渠道中：${requested || "未选择模型"}`);
+        }
+        // The plugin settings page loads the full admin channel catalog, while
+        // the runtime config may still contain an older/publicly filtered
+        // model list. Keep the selected system channel as the authority and
+        // let the Canvas backend validate the model against its live catalog.
+        // Augment only the in-memory runtime copy so we never persist stale
+        // catalog data back to user settings.
+        const runtimeChannels = channel.models.some((candidate) => modelOptionName(candidate).trim() === requested)
+            ? aiConfig.channels
+            : aiConfig.channels.map((candidate) => candidate.id === channel.id
+                ? { ...candidate, models: [...candidate.models, requested] }
+                : candidate);
+        const runtimeConfig = runtimeChannels === aiConfig.channels ? aiConfig : { ...aiConfig, channels: runtimeChannels };
+        // Keep the channel-qualified model on the config. requestToolResponse
+        // resolves the config once more, so a bare model could accidentally
+        // match another channel that exposes the same model name.
+        return { ...resolveModelRequestConfig(runtimeConfig, encodeChannelModel(channel.id, requested)), channels: runtimeChannels, model: encodeChannelModel(channel.id, requested) };
+    };
     return {
         manifest: plugin.manifest,
         permissions,
@@ -19,8 +48,9 @@ export function createPluginHostContext(plugin: RegisteredPlugin, installation: 
                 text: {
                     requestToolResponse: async (request: PluginTextRequest) => {
                         if (!permissions.has("ai.text")) throw new Error("插件没有调用文本模型的权限");
+                        const requestConfig = resolvePluginModelConfig(request.model);
                         const response = await requestToolResponse(
-                            { ...aiConfig, model: request.model?.trim() || aiConfig.textModel },
+                            requestConfig,
                             request.messages as ResponseInputMessage[],
                             (request.tools || []) as ResponseFunctionTool[],
                             (request.toolChoice || "auto") as ToolChoice,
@@ -33,12 +63,44 @@ export function createPluginHostContext(plugin: RegisteredPlugin, installation: 
                         };
                     },
                 },
+                audio: {
+                    transcribe: async (request) => {
+                        if (!permissions.has("ai.audio")) throw new Error("插件没有调用音频模型的权限");
+                        const requestConfig = resolvePluginModelConfig(request.model);
+                        const form = new FormData();
+                        form.append("file", request.file, request.fileName);
+                        form.append("model", modelOptionName(requestConfig.model));
+                        const result = await createChannelTransport(requestConfig, "audio").postForm<Record<string, unknown>>(
+                            buildApiUrl(requestConfig.baseUrl, "/audio/transcriptions"),
+                            form,
+                            { signal: request.signal },
+                        );
+                        const text = typeof result.text === "string" ? result.text.trim() : "";
+                        if (!text) throw new Error("系统渠道未返回有效的语音转写文本");
+                        const segments = Array.isArray(result.segments)
+                            ? result.segments.flatMap((segment) => {
+                                if (!segment || typeof segment !== "object") return [];
+                                const item = segment as Record<string, unknown>;
+                                const start = timeToMs(item.start_ms ?? item.start, 0);
+                                const end = timeToMs(item.end_ms ?? item.end, start);
+                                const segmentText = String(item.text ?? item.original_text ?? "").trim();
+                                return segmentText ? [{ startMs: start, endMs: Math.max(start, end), text: segmentText }] : [];
+                            })
+                            : undefined;
+                        return { text, segments };
+                    },
+                },
             },
             media: {
                 resolve: (reference, signal) => resolvePluginMedia(reference, permissions.has("media.read"), signal),
             },
         },
     };
+}
+
+function timeToMs(value: unknown, fallback: number) {
+    const number = typeof value === "number" ? value : typeof value === "string" ? Number(value) : Number.NaN;
+    return Number.isFinite(number) ? Math.max(0, Math.round(number < 1000 ? number * 1000 : number)) : fallback;
 }
 
 /** Host-owned resolver: the plugin never sees storage keys, asset URLs or account IDs. */

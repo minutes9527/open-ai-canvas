@@ -1,4 +1,4 @@
-import { AudioLines, Captions, Clapperboard, Download, FolderPlus, Images, Image as ImageIcon, Info, LoaderCircle, Lock, Maximize2, MessageSquare, Minus, Music2, Plus, RefreshCw, Scissors, Settings2, Trash2, Unlock, Upload, UserRound, Video, WandSparkles } from "lucide-react";
+import { AudioLines, Captions, Clapperboard, Download, FolderPlus, Images, Image as ImageIcon, Info, LoaderCircle, Lock, Maximize2, MessageSquare, Minus, Music2, Plus, RefreshCw, Scissors, Settings2, Sparkles, Trash2, Unlock, Upload, UserRound, Video, WandSparkles } from "lucide-react";
 
 import { CONTENT_MODERATION_ERROR_CODE, isContentModerationError } from "@/lib/generation-error";
 import { registerToolbarTools, type ToolContext, type ToolDefinition } from "@/lib/canvas/tool-registry";
@@ -154,6 +154,19 @@ export const nodeHoverToolbarTools: ToolDefinition[] = [
         nodeToolbar: { group: "primary", order: 15, description: "在右侧创建转换节点并自动连接" },
         applicable: (ctx) => (hasImage(ctx) || hasVideo(ctx)) && Boolean(ctx.handlers.onNodeCreateConversion),
         run: (ctx) => ctx.handlers.onNodeCreateConversion?.(ctx.node!),
+    },
+    {
+        id: "createFrameScriptReview",
+        toolbar: "node-hover",
+        category: "node-state",
+        label: "使用 FrameScript 分析视频",
+        displayLabel: "FrameScript",
+        icon: <Sparkles className="size-3.5" />,
+        defaultVisible: true,
+        defaultOrder: 66,
+        nodeToolbar: { group: "primary", order: 16, description: "创建候选帧人工复核节点并自动连接" },
+        applicable: (ctx) => hasVideo(ctx) && Boolean(ctx.handlers.onNodeCreateFrameScriptReview),
+        run: (ctx) => ctx.handlers.onNodeCreateFrameScriptReview?.(ctx.node!),
     },
     {
         id: "edit",
