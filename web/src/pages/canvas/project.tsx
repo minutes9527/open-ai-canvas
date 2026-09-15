@@ -99,7 +99,7 @@ import { CanvasProjectMediaDialogs } from "./canvas-project-media-dialogs";
 import { CanvasProjectSelectionToolbar } from "./canvas-project-selection-toolbar";
 import { CanvasProjectStatusDialogs } from "./canvas-project-status-dialogs";
 import { CanvasProjectWorldLayers } from "./canvas-project-world-layers";
-import { CanvasNodeActionContext, type CanvasNodeActionContextValue } from "@/components/canvas/canvas-node-action-context";
+import { CanvasNodeActionContext, type CanvasNodeActionContextValue, type FrameScriptCanvasFrame, type FrameScriptCanvasStoryboardFrame } from "@/components/canvas/canvas-node-action-context";
 import { bringCanvasNodeToFront, type CanvasNodeStackOrder } from "@/lib/canvas/canvas-node-stack-order";
 import { PortraitClearanceModal } from "@/components/canvas/portrait-clearance/portrait-clearance-modal";
 import { AiArtCritiqueModal } from "@/components/canvas/art-critique/ai-art-critique-modal";
@@ -157,11 +157,14 @@ import type { PortraitClearanceNodeState } from "@/lib/portrait-clearance/contra
 import { createDefaultPortraitClearanceState, PORTRAIT_CLEARANCE_NODE_TYPE } from "@/lib/portrait-clearance/contracts";
 import { reconcilePortraitClearanceInputBindings } from "@/lib/portrait-clearance/input-bindings";
 import { ART_CRITIQUE_NODE_TYPE } from "@/lib/art-critique/contracts";
+import { FRAMESCRIPT_STORYBOARD_NODE_TYPE, FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE } from "@/lib/framescript-video-review/contracts";
+import { frameScriptFinalContent, frameScriptGenerationMetadata, frameScriptInitialCreativeContent } from "@/lib/framescript-video-review/storyboard-content";
 
 const CanvasDirectorWorkbench = lazy(() => import("@/components/canvas/director/canvas-director-workbench").then((module) => ({ default: module.CanvasDirectorWorkbench })));
 const CanvasDrawingEditorModal = lazy(() => import("@/components/canvas/canvas-drawing-editor-modal").then((module) => ({ default: module.CanvasDrawingEditorModal })));
 
 const NODE_STATUS_SUCCESS = "success" as const;
+const NODE_STATUS_IDLE = "idle" as const;
 const EMPTY_RESOURCE_REFERENCES: CanvasResourceReference[] = [];
 
 async function copyImageToSystemClipboard(source: string, storageKey?: string) {
@@ -194,6 +197,13 @@ async function copyImageToSystemClipboard(source: string, storageKey?: string) {
     const blob = await fetchPNG();
     if (typeof window !== "undefined") window.focus();
     await navigator.clipboard.write([new ClipboardItem({ "image/png": blob })]);
+}
+
+function formatFrameTime(timeMs: number) {
+    const totalSeconds = Math.max(0, Math.round(timeMs / 1000));
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
 async function convertClipboardImageToPNG(blob: Blob) {
@@ -524,7 +534,7 @@ function InfiniteCanvasPage() {
     // 扩展节点（对比/图表/调色）要读自己的上游才能渲染，经 Context 下发；
     // 取上游复用 canvas-resource-references 的实现，别在这里另写一份。必须 memo——
     // 每帧新对象会让所有节点跟着重渲染，错题本里多条崩溃都出在画布高频更新。
-    const nodeGraphContext = useMemo<CanvasNodeGraphContextValue>(() => ({ getUpstreamNodes: (nodeId: string) => getContextResourceNodes(nodeId, nodes, connections) }), [connections, nodes]);
+    const nodeGraphContext = useMemo<CanvasNodeGraphContextValue>(() => ({ getUpstreamNodes: (nodeId: string) => getContextResourceNodes(nodeId, nodes, connections), getNodes: () => nodes, getConnections: () => connections }), [connections, nodes]);
 
     const {
         applyGenerationTaskResult,
@@ -1079,6 +1089,19 @@ function InfiniteCanvasPage() {
         void createConnectedNode(CanvasNodeType.MediaConversion, pending);
     }, [createConnectedNode]);
 
+    const createFrameScriptReviewFromSource = useCallback((source: CanvasNodeData) => {
+        if (source.type !== CanvasNodeType.Video) return;
+        const review = createNode(FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE, {
+            x: source.position.x + source.width + 96 + 196,
+            y: source.position.y + source.height / 2,
+        });
+        if (!review) return;
+        const connection = { id: nanoid(), fromNodeId: source.id, toNodeId: review.id, fromAnchorRatio: 0.5, toAnchorRatio: 0.5 };
+        connectionsRef.current = [...connectionsRef.current, connection];
+        setConnections(connectionsRef.current);
+        message.success("已创建 FrameScript 复核节点，请开始候选帧人工筛选");
+    }, [connectionsRef, createNode, message, setConnections]);
+
     const handleCanvasSelectionStart = useCallback(() => {
         setContextMenu(null);
     }, []);
@@ -1111,6 +1134,10 @@ function InfiniteCanvasPage() {
             setArtCritiqueNodeId(node.id);
         } else if (node.type === CanvasNodeType.MediaConversion) {
             setDialogNodeId(null);
+        } else if (node.type === FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE) {
+            setDialogNodeId(null);
+        } else if (node.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE) {
+            setDialogNodeId(null);
         } else if (node.type === CanvasNodeType.Panorama) {
             // 全景节点是纯查看器，没有可编辑提示词，不弹提示词面板。
             setDialogNodeId(null);
@@ -1131,7 +1158,7 @@ function InfiniteCanvasPage() {
 
     const handleNodeDragEnd = useCallback((nodeId: string) => {
         const node = nodesRef.current.find((item) => item.id === nodeId);
-        if (!node || node.type === CanvasNodeType.Script || node.type === CanvasNodeType.Drawing || node.type === CanvasNodeType.MediaConversion || node.type === CanvasNodeType.Panorama || node.type === PORTRAIT_CLEARANCE_NODE_TYPE || node.type === ART_CRITIQUE_NODE_TYPE) {
+        if (!node || node.type === CanvasNodeType.Script || node.type === CanvasNodeType.Drawing || node.type === CanvasNodeType.MediaConversion || node.type === FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE || node.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE || node.type === CanvasNodeType.Panorama || node.type === PORTRAIT_CLEARANCE_NODE_TYPE || node.type === ART_CRITIQUE_NODE_TYPE) {
             setDialogNodeId(null);
             return;
         }
@@ -1468,6 +1495,273 @@ function InfiniteCanvasPage() {
             message.error(error instanceof Error ? error.message : "候选图片添加失败");
         }
     }, [currentProject?.projectId, message, portraitClearanceNodeId, projectId, setConnections, setNodes, setSelectedNodeIds]);
+    const persistFrameScriptImageNodes = useCallback(async (reviewNode: CanvasNodeData, frames: readonly FrameScriptCanvasFrame[]) => {
+        const existingNodes = nodesRef.current.filter((item) => item.type === CanvasNodeType.Image && item.metadata?.frameScriptSourceNodeId === reviewNode.id);
+        const existingByFrame = new Map(existingNodes.flatMap((item) => item.metadata?.frameScriptFrameId ? [[item.metadata.frameScriptFrameId, item] as const] : []));
+        const pending = frames.filter((frame) => !existingByFrame.has(frame.id));
+        const origin = {
+            x: reviewNode.position.x + reviewNode.width + 280,
+            y: reviewNode.position.y + reviewNode.height / 2,
+        };
+        const created: CanvasNodeData[] = [];
+        for (const [index, frame] of pending.entries()) {
+            const response = await fetch(frame.imageUrl);
+            if (!response.ok) throw new Error(`读取第 ${frame.index} 张分镜失败`);
+            const image = await uploadImage(await response.blob());
+            const node = createCanvasNode(CanvasNodeType.Image, {
+                x: origin.x + (index % 3) * 360,
+                y: origin.y + Math.floor(index / 3) * 300,
+            }, imageMetadata(image));
+            node.title = `分镜 ${frame.index} · ${formatFrameTime(frame.timeMs)}`;
+            node.metadata = {
+                ...node.metadata,
+                frameScriptSourceNodeId: reviewNode.id,
+                frameScriptFrameId: frame.id,
+                frameScriptFrameIndex: frame.index,
+                frameScriptFrameTimeMs: frame.timeMs,
+                frameScriptSourceVideoId: frame.sourceVideoId,
+                frameScriptFrameReasons: frame.reasons ? [...frame.reasons] : undefined,
+                frameScriptExportedAt: new Date().toISOString(),
+            };
+            created.push(node);
+        }
+        if (created.length) {
+            setNodes((current) => [...current, ...created]);
+            nodesRef.current = [...nodesRef.current, ...created];
+            for (const node of created) {
+                try {
+                    const result = await ensureCanvasNodeAsset({ canvasId: projectId, domainProjectId: currentProject?.projectId, node, source: "canvas-manual" });
+                    setNodes((current) => current.map((item) => item.id === node.id ? { ...item, metadata: { ...item.metadata, assetId: result.assetId } } : item));
+                } catch (error) {
+                    message.warning(error instanceof Error ? `分镜已添加，但素材同步失败：${error.message}` : "分镜已添加，但素材同步失败");
+                }
+            }
+        }
+        return frames.flatMap((frame) => {
+            const imageNode = existingByFrame.get(frame.id) || created.find((item) => item.metadata?.frameScriptFrameId === frame.id);
+            return imageNode ? [imageNode] : [];
+        });
+    }, [currentProject?.projectId, ensureCanvasNodeAsset, message, nodesRef, projectId, setNodes]);
+    const addFrameScriptImageNodes = useCallback(async (reviewNode: CanvasNodeData, frames: readonly FrameScriptCanvasFrame[]) => {
+        try {
+            const existingCount = frames.filter((frame) => nodesRef.current.some((item) => item.type === CanvasNodeType.Image && item.metadata?.frameScriptSourceNodeId === reviewNode.id && item.metadata?.frameScriptFrameId === frame.id)).length;
+            const imageNodes = await persistFrameScriptImageNodes(reviewNode, frames);
+            if (existingCount === frames.length) {
+                message.info("这些分镜已经在画布中");
+                return;
+            }
+            setSelectedNodeIds(new Set(imageNodes.map((item) => item.id)));
+            message.success(`已将 ${frames.length - existingCount} 张确认分镜添加到画布`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "分镜添加到画布失败");
+        }
+    }, [message, nodesRef, persistFrameScriptImageNodes, setSelectedNodeIds]);
+    const addFrameScriptStoryboardNode = useCallback(async (reviewNode: CanvasNodeData, frames: readonly FrameScriptCanvasStoryboardFrame[]) => {
+        try {
+            const imageNodes = await persistFrameScriptImageNodes(reviewNode, frames);
+            const imageByFrame = new Map(imageNodes.flatMap((item) => item.metadata?.frameScriptFrameId ? [[item.metadata.frameScriptFrameId, item.id] as const] : []));
+            const videoSourceIds = connectionsRef.current
+                .filter((connection) => connection.toNodeId === reviewNode.id)
+                .map((connection) => nodesRef.current.find((item) => item.id === connection.fromNodeId))
+                .filter((item): item is CanvasNodeData => item?.type === CanvasNodeType.Video)
+                .map((item) => item.id);
+            const inheritedReferenceNodeIds = Array.from(new Set([
+                ...getContextResourceNodes(reviewNode.id, nodesRef.current, connectionsRef.current).map((item) => item.id),
+                ...videoSourceIds.flatMap((videoId) => getContextResourceNodes(videoId, nodesRef.current, connectionsRef.current).map((item) => item.id)),
+            ])).filter((id) => !imageNodes.some((item) => item.id === id));
+            const referenceNodeId = inheritedReferenceNodeIds[0];
+            const storyboardNode = createCanvasNode(FRAMESCRIPT_STORYBOARD_NODE_TYPE, {
+                x: reviewNode.position.x + reviewNode.width + 560,
+                y: reviewNode.position.y + reviewNode.height / 2,
+            }, {
+                frameScriptStoryboard: {
+                    schemaVersion: 1,
+                    sourceNodeId: reviewNode.id,
+                    sourceVideoId: frames[0]?.sourceVideoId,
+                    referenceNodeIds: referenceNodeId ? [referenceNodeId] : [],
+                    frames: frames.map((frame) => {
+                        const frameReferenceNodeId = frame.referenceNodeId || frame.referenceNodeIds?.[0] || referenceNodeId;
+                        return {
+                            id: frame.id,
+                            index: frame.index,
+                            timeMs: frame.timeMs,
+                            durationSeconds: frame.durationSeconds,
+                            imageNodeId: imageByFrame.get(frame.id),
+                            description: frame.description,
+                            imageGenerationPrompt: frame.imageGenerationPrompt || frame.description,
+                            videoMotionPrompt: frame.videoMotionPrompt,
+                            dialogue: frame.dialogue,
+                            screenText: frame.screenText,
+                            referenceNodeId: frameReferenceNodeId,
+                            referenceNodeIds: frameReferenceNodeId ? [frameReferenceNodeId] : [],
+                            reasons: frame.reasons ? [...frame.reasons] : undefined,
+                            originalAnalysis: frame.originalAnalysis ? { ...frame.originalAnalysis } : undefined,
+                            replacementSettings: [],
+                            ...(frame.originalAnalysis ? frameScriptInitialCreativeContent(frame.originalAnalysis) : {}),
+                        };
+                    }),
+                    updatedAt: new Date().toISOString(),
+                },
+            });
+            storyboardNode.title = "FrameScript 分镜复刻";
+            const connection: CanvasConnection = { id: nanoid(), fromNodeId: reviewNode.id, toNodeId: storyboardNode.id };
+            setNodes((current) => [...current, storyboardNode]);
+            nodesRef.current = [...nodesRef.current, storyboardNode];
+            connectionsRef.current = [...connectionsRef.current, connection];
+            setConnections(connectionsRef.current);
+            setSelectedNodeIds(new Set([storyboardNode.id]));
+            message.success(`已生成轻量分镜复刻节点，包含 ${frames.length} 个确认镜头`);
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "分镜复刻节点生成失败");
+        }
+    }, [connectionsRef, message, nodesRef, persistFrameScriptImageNodes, setConnections, setNodes, setSelectedNodeIds]);
+    const createFrameScriptImageGenerationNodes = useCallback(async (storyboardNode: CanvasNodeData, frameId?: string) => {
+        const state = storyboardNode.metadata?.frameScriptStoryboard;
+        if (storyboardNode.type !== FRAMESCRIPT_STORYBOARD_NODE_TYPE || !state?.frames.length) return;
+        const orderedFrames = [...state.frames].sort((left, right) => left.index - right.index || left.timeMs - right.timeMs);
+        const selectedFrames = frameId ? orderedFrames.filter((frame) => frame.id === frameId) : orderedFrames;
+        if (!selectedFrames.length) return;
+        const nextNodes = [...nodesRef.current];
+        let nextConnections = [...connectionsRef.current];
+        const createdIds: string[] = [];
+        const imageSpec = getNodeSpec(CanvasNodeType.Image);
+        const findExistingShotNode = (frame: (typeof state.frames)[number]) => {
+            const shotTitle = `镜头 ${frame.index} · 分镜图`;
+            return [
+                // A row action must never reuse whichever image panel happens
+                // to be open; only a node belonging to this exact shot may be
+                // overwritten.
+                dialogNodeId ? nextNodes.find((item) => item.id === dialogNodeId
+                    && item.type === CanvasNodeType.Image
+                    && item.metadata?.frameScriptStoryboardNodeId === storyboardNode.id
+                    && item.metadata?.frameScriptStoryboardFrameId === frame.id) : undefined,
+                nextNodes.find((item) => item.type === CanvasNodeType.Image && item.metadata?.frameScriptStoryboardNodeId === storyboardNode.id && item.metadata?.frameScriptStoryboardFrameId === frame.id && !isHiddenBatchChild(item, nextNodes)),
+                frame.imageGenerationNodeId ? nextNodes.find((item) => item.id === frame.imageGenerationNodeId && item.type === CanvasNodeType.Image) : undefined,
+                nextNodes.find((item) => item.type === CanvasNodeType.Image && item.metadata?.frameScriptStoryboardNodeId === storyboardNode.id && item.metadata?.frameScriptStoryboardFrameId === frame.id),
+            ].find((item): item is CanvasNodeData => Boolean(item));
+        };
+        // The row-level action is a targeted export. Never silently replace a
+        // generated shot when the user clicks it again; bulk export keeps its
+        // existing idempotent behaviour and only refreshes the requested rows.
+        if (frameId) {
+            const frame = selectedFrames[0];
+            const existing = findExistingShotNode(frame);
+            // Persisted projects may contain an older shot node without the
+            // newer status/content fields. Its existence is still enough to
+            // qualify as an overwrite, so never silently replace it.
+            if (existing) {
+                const confirmed = await new Promise<boolean>((resolve) => {
+                    modal.confirm({
+                        title: `覆盖镜头 ${frame.index} 的分镜图？`,
+                        content: "当前镜头已经存在图片生成节点（可能已有生成结果）。确认后会按当前原帧、前置资产和提示词重新绑定并覆盖它。",
+                        okText: "覆盖原有分镜图",
+                        okButtonProps: { danger: true },
+                        cancelText: "取消",
+                        onOk: () => resolve(true),
+                        onCancel: () => resolve(false),
+                    });
+                });
+                if (!confirmed) return;
+            }
+        }
+        const inheritedReferenceIds: string[] = [];
+        const visitedUpstream = new Set<string>();
+        const upstreamQueue = connectionsRef.current.filter((connection) => connection.toNodeId === storyboardNode.id).map((connection) => connection.fromNodeId);
+        while (upstreamQueue.length) {
+            const upstreamId = upstreamQueue.shift()!;
+            if (visitedUpstream.has(upstreamId)) continue;
+            visitedUpstream.add(upstreamId);
+            const upstream = nodesRef.current.find((item) => item.id === upstreamId);
+            if (!upstream) continue;
+            if (upstream.type === CanvasNodeType.Image || upstream.type === CanvasNodeType.Drawing || upstream.metadata?.workflowKind === "character") {
+                inheritedReferenceIds.push(upstream.id);
+                continue;
+            }
+            connectionsRef.current.filter((connection) => connection.toNodeId === upstream.id).forEach((connection) => upstreamQueue.push(connection.fromNodeId));
+        }
+        const referenceIdsForFrame = (frame: (typeof state.frames)[number]) => {
+            // Older storyboard snapshots may not retain the extracted frame id on
+            // the row, so resolve it again from the persisted FrameScript image
+            // metadata before assembling the generation node references.
+            const originalFrameNodeId = frame.imageNodeId && nextNodes.some((item) => item.id === frame.imageNodeId && item.type === CanvasNodeType.Image)
+                ? frame.imageNodeId
+                : nextNodes.find((item) => item.type === CanvasNodeType.Image
+                    && item.metadata?.frameScriptSourceNodeId === state.sourceNodeId
+                    && item.metadata?.frameScriptFrameId === frame.id)?.id;
+            const replacementAssetIds = [
+                ...(frame.referenceNodeIds || []),
+                ...(frame.referenceNodeId ? [frame.referenceNodeId] : []),
+                ...(state.referenceNodeIds || []),
+                ...inheritedReferenceIds,
+            ];
+            const ids = [originalFrameNodeId, ...replacementAssetIds].filter((id): id is string => Boolean(id));
+            return Array.from(new Set(ids)).filter((id) => id !== storyboardNode.id && nextNodes.some((item) => item.id === id && (item.type === CanvasNodeType.Image || item.type === CanvasNodeType.Drawing || item.metadata?.workflowKind === "character")));
+        };
+        for (const frame of selectedFrames) {
+            const finalContent = frameScriptFinalContent(frame);
+            const prompt = finalContent.imageGenerationPrompt.trim();
+            if (!prompt) continue;
+            const refs = referenceIdsForFrame(frame);
+            const shotTitle = `镜头 ${frame.index} · 分镜图`;
+            const existing = findExistingShotNode(frame);
+            const safeRefs = refs.filter((id) => !existing || id !== existing.id);
+            const orderIndex = Math.max(0, orderedFrames.findIndex((candidate) => candidate.id === frame.id));
+            const shotPosition = {
+                x: storyboardNode.position.x + storyboardNode.width + imageSpec.width / 2 + 160,
+                y: storyboardNode.position.y + 180 + orderIndex * (imageSpec.height + 36),
+            };
+            const generationMetadata = frameScriptGenerationMetadata(frame, "image", storyboardNode.id, safeRefs);
+            const imageNode = existing
+                ? { ...existing, position: shotPosition, metadata: { ...existing.metadata, ...generationMetadata } }
+                : (() => {
+                    const created = createCanvasNode(CanvasNodeType.Image, shotPosition, { ...generationMetadata, status: NODE_STATUS_IDLE });
+                    created.title = `镜头 ${frame.index} · 分镜图`;
+                    return created;
+                })();
+            const existingIndex = nextNodes.findIndex((item) => item.id === imageNode.id);
+            if (existingIndex >= 0) nextNodes[existingIndex] = imageNode;
+            else nextNodes.push(imageNode);
+            createdIds.push(imageNode.id);
+            // FrameScript owns the reference shelf for its generated shot. Clear
+            // stale generic inputs (for example an old review-text connection)
+            // before restoring exactly this row's original frame and replacement
+            // asset references.
+            nextConnections = nextConnections.filter((connection) => {
+                if (connection.toNodeId === imageNode.id) return false;
+                const target = nextNodes.find((item) => item.id === connection.toNodeId);
+                return !(connection.fromNodeId === imageNode.id && target?.type === CanvasNodeType.Config);
+            });
+            nextConnections.push({ id: nanoid(), fromNodeId: storyboardNode.id, toNodeId: imageNode.id, relation: "storyboard-output", storyboardRowId: frame.id });
+            safeRefs.forEach((referenceNodeId) => {
+                if (!nextConnections.some((connection) => connection.fromNodeId === referenceNodeId && connection.toNodeId === imageNode.id && connection.relation === "storyboard-asset-reference" && connection.storyboardRowId === frame.id)) {
+                    nextConnections.push({ id: nanoid(), fromNodeId: referenceNodeId, toNodeId: imageNode.id, relation: "storyboard-asset-reference", storyboardRowId: frame.id });
+                }
+            });
+            const frameIndex = nextNodes.findIndex((item) => item.id === storyboardNode.id);
+            if (frameIndex >= 0) {
+                const currentStoryboard = nextNodes[frameIndex];
+                    const currentState = currentStoryboard.metadata?.frameScriptStoryboard;
+                    if (currentState) nextNodes[frameIndex] = { ...currentStoryboard, metadata: { ...currentStoryboard.metadata, frameScriptStoryboard: { ...currentState, frames: currentState.frames.map((item) => item.id === frame.id ? { ...item, imageGenerationNodeId: imageNode.id, imageGenerationPrompt: prompt, referenceNodeId: safeRefs.find((id) => id !== item.imageNodeId), referenceNodeIds: safeRefs.filter((id) => id !== item.imageNodeId) } : item), updatedAt: new Date().toISOString() } } };
+            }
+        }
+        if (!createdIds.length) {
+            message.warning("没有可用的图片提示词，无法创建分镜图节点");
+            return;
+        }
+        nodesRef.current = nextNodes;
+        connectionsRef.current = nextConnections;
+        setNodes(nextNodes);
+        setConnections(nextConnections);
+        setSelectedNodeIds(new Set(createdIds));
+        // If the image composer is already open for the same node, React keeps
+        // the dialog mounted by id. Reopen it on the next tick so its reference
+        // shelf consumes the freshly persisted FrameScript row bindings.
+        if (createdIds.length) {
+            setDialogNodeId(null);
+            window.setTimeout(() => setDialogNodeId(createdIds[0]), 0);
+        }
+        message.success(`${frameId ? "已导入 1 个" : `已导入 ${createdIds.length} 个`}图片生成节点，请分别点击生成`);
+    }, [connectionsRef, dialogNodeId, message, modal, nodesRef, setConnections, setDialogNodeId, setNodes, setSelectedNodeIds]);
     const pendingConnectionSourceNode = pendingConnectionCreate?.connection.handleType === "source" ? nodeById.get(pendingConnectionCreate.connection.nodeId) : null;
     const canCreateDrawingFromConnection = !pendingConnectionCreate?.batchSourceNodeIds?.length && pendingConnectionSourceNode?.type === CanvasNodeType.Image && Boolean(pendingConnectionSourceNode.metadata?.content);
 
@@ -1554,7 +1848,10 @@ function InfiniteCanvasPage() {
         openPortraitClearance,
         openArtCritique,
         addPanoramaCaptureNode,
-    }), [addPanoramaCaptureNode, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, openPortraitClearance, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent]);
+        addFrameScriptImageNodes,
+        addFrameScriptStoryboardNode,
+        createFrameScriptImageGenerationNodes,
+    }), [addFrameScriptImageNodes, addFrameScriptStoryboardNode, addPanoramaCaptureNode, createFrameScriptImageGenerationNodes, deleteNodeFromContent, downloadNodeImage, duplicateNodeFromContent, openArtCritique, openPortraitClearance, replaceCanvasNodeMedia, updateMediaNodeFromContent, updateNodeFromContent, updateNodeMetadataFromContent]);
     const { agentSnapshot, agentUndoCount, applyAgentOps, canUndoAgentOps, dismissLastAgentChange, lastAgentChange, undoAgentOps, viewLastAgentChange } = useCanvasAgentOperations({
         projectId,
         domainProjectId: currentProject?.projectId,
@@ -2003,7 +2300,7 @@ function InfiniteCanvasPage() {
 
     const renderCanvasNodePanel = useCallback(
         (panelNode: CanvasNodeData) => {
-            if (panelNode.type === CanvasNodeType.Script || panelNode.type === CanvasNodeType.Drawing || panelNode.type === CanvasNodeType.MediaConversion) return null;
+            if (panelNode.type === CanvasNodeType.Script || panelNode.type === CanvasNodeType.Drawing || panelNode.type === CanvasNodeType.MediaConversion || panelNode.type === FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE || panelNode.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE) return null;
             return panelNode.type === CanvasNodeType.Config ? (
                 <CanvasConfigComposer
                     value={panelNode.metadata?.composerContent ?? panelNode.metadata?.prompt ?? ""}
@@ -2018,6 +2315,7 @@ function InfiniteCanvasPage() {
                 />
             ) : (
                 <CanvasNodePromptPanel
+                    key={`${panelNode.id}:${panelNode.metadata?.frameScriptStoryboardReferenceNodeIds?.join(",") || ""}`}
                     projectId={projectId}
                     node={panelNode}
                     isRunning={runningNodeId === panelNode.id}
@@ -2719,6 +3017,7 @@ function InfiniteCanvasPage() {
                         onDownload={downloadNodeImage}
                         onSaveAsset={(node) => void saveNodeAsset(node)}
                         onCreateConversion={createConversionFromSource}
+                        onCreateFrameScriptReview={createFrameScriptReviewFromSource}
                         onAnnotate={(node) => setAnnotationNodeId(node.id)}
                         onMaskEdit={(node) => setMaskEditNodeId(node.id)}
                         onEmotion={(node) => {

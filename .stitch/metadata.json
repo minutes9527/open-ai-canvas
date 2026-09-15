@@ -1,0 +1,23 @@
+{
+  "projectId": "16311479161257811593",
+  "title": "CanvasMind Creative Workspace",
+  "screens": [
+    {
+      "screenId": "5344251026654376162",
+      "title": "/canvas/:id",
+      "deviceType": "DESKTOP"
+    },
+    {
+      "screenId": "669846eafb2e4118916e5987e96665c1",
+      "title": "FrameScript 视频理解工作流 - 候选帧人工复核",
+      "deviceType": "DESKTOP"
+    }
+  ],
+  "designSystem": {
+    "assetId": "e127d70b6e82464bb14da9de4db91a04",
+    "primaryColor": "#f5f5f5",
+    "secondaryColor": "#2a2a2a",
+    "backgroundColor": "#0f0f0f",
+    "fontFamily": "INTER"
+  }
+}

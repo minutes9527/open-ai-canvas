@@ -143,9 +143,9 @@ export const ConnectionPath = React.memo(function ConnectionPath({
 
 export function canvasConnectionPath(connection: CanvasConnection, from: CanvasNodeData, to: CanvasNodeData, fromScrollTop = 0, toScrollTop = 0) {
     const startX = from.position.x + from.width;
-    const startY = connectionHandleY(from, connection.fromHandleId, fromScrollTop);
+    const startY = connectionHandleY(from, connection.fromHandleId, fromScrollTop, connection.fromAnchorRatio);
     const endX = to.position.x;
-    const endY = connectionHandleY(to, connection.toHandleId, toScrollTop);
+    const endY = connectionHandleY(to, connection.toHandleId, toScrollTop, connection.toAnchorRatio);
     const dx = Math.abs(endX - startX);
     const curvature = Math.max(dx * 0.5, 50);
     return { pathD: `M ${startX} ${startY} C ${startX + curvature} ${startY}, ${endX - curvature} ${endY}, ${endX} ${endY}`, startX, startY, endX, endY };
@@ -154,9 +154,9 @@ export function canvasConnectionPath(connection: CanvasConnection, from: CanvasN
 export function activeConnectionPath(node: CanvasNodeData | undefined, handle: ConnectionHandle, mouseWorld: Position, target?: CanvasNodeData, nodeScrollTop = 0) {
     if (!node) return "";
     const startX = handle.handleType === "source" ? node.position.x + node.width : mouseWorld.x;
-    const startY = handle.handleType === "source" ? connectionHandleY(node, handle.handleId, nodeScrollTop) : mouseWorld.y;
+    const startY = handle.handleType === "source" ? connectionHandleY(node, handle.handleId, nodeScrollTop, handle.anchorRatio) : mouseWorld.y;
     const endX = handle.handleType === "source" ? mouseWorld.x : node.position.x;
-    const endY = handle.handleType === "source" ? mouseWorld.y : connectionHandleY(node, handle.handleId, nodeScrollTop);
+    const endY = handle.handleType === "source" ? mouseWorld.y : connectionHandleY(node, handle.handleId, nodeScrollTop, handle.anchorRatio);
     const snappedStartX = handle.handleType === "target" && target ? target.position.x + target.width : startX;
     const snappedStartY = handle.handleType === "target" && target ? connectionHandleY(target) : startY;
     const snappedEndX = handle.handleType === "source" && target ? target.position.x : endX;
@@ -173,7 +173,10 @@ export function activeConnectionPath(node: CanvasNodeData | undefined, handle: C
  * 真正的多端口只存在于分镜脚本的 `row:` 句柄；普通节点始终连接到边缘
  * 垂直中心，避免同一个节点因鼠标落点产生漂移的“伪端口”。
  */
-export function connectionHandleY(node: CanvasNodeData, handleId?: string, scrollTop = 0) {
+export function connectionHandleY(node: CanvasNodeData, handleId?: string, scrollTop = 0, anchorRatio?: number) {
+    if (handleId?.startsWith("row:") && node.metadata?.frameScriptStoryboard && anchorRatio !== undefined) {
+        return node.position.y + node.height * Math.min(1, Math.max(0, anchorRatio));
+    }
     if (handleId === "storyboard:context") return node.position.y + node.height - (node.metadata?.storyboardComposerHeight || 104) / 2;
     if (!handleId?.startsWith("row:")) return node.position.y + node.height / 2;
     const rowId = handleId.slice(4);

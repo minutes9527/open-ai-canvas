@@ -1,5 +1,5 @@
 import { VideoPluginError } from "./video-plugin";
-import { validateVideoReviewDraft, type VideoReviewDraft } from "./video-review";
+import { portableReviewFrame, validateVideoReviewDraft, type VideoReviewDraft } from "./video-review";
 
 /** Copies only portable review metadata. Blobs, URLs, configurations and arbitrary metadata never persist. */
 export function snapshotVideoReview(draft: VideoReviewDraft): VideoReviewDraft {
@@ -8,7 +8,7 @@ export function snapshotVideoReview(draft: VideoReviewDraft): VideoReviewDraft {
         schema: draft.schema, version: draft.version, state: draft.state,
         source: { kind: draft.source.kind, id: draft.source.id }, sourceFingerprint: draft.sourceFingerprint,
         revision: draft.revision, durationMs: draft.durationMs,
-        frames: draft.frames.map((frame) => ({ id: frame.id, timeMs: frame.timeMs, eventTimeMs: frame.eventTimeMs, score: frame.score, reasons: [...frame.reasons], hardTrigger: frame.hardTrigger, quality: frame.quality, qualityMethod: frame.qualityMethod, qualityAdjusted: frame.qualityAdjusted, width: frame.width, height: frame.height, shotId: frame.shotId })),
+        frames: draft.frames.map(portableReviewFrame),
         transcript: draft.transcript ? { text: draft.transcript.text, segments: draft.transcript.segments.map((segment) => ({ startMs: segment.startMs, endMs: segment.endMs, originalText: segment.originalText, cleanedText: segment.cleanedText, speaker: segment.speaker, confidence: segment.confidence, shotIds: segment.shotIds ? [...segment.shotIds] : undefined })) } : undefined,
         screenText: draft.screenText.map((entry) => ({ frameId: entry.frameId, text: entry.text, confidence: entry.confidence })),
         detectors: [...draft.detectors],
@@ -18,9 +18,9 @@ export function snapshotVideoReview(draft: VideoReviewDraft): VideoReviewDraft {
     return snapshot;
 }
 
-export function snapshotReviewSelection(draft: VideoReviewDraft, selectedIds: readonly string[]) {
+export function snapshotReviewSelection(draft: VideoReviewDraft, selectedIds: readonly string[], options?: { allowEmpty?: boolean }) {
     const ids = new Set(draft.frames.map((frame) => frame.id));
-    if (!Array.isArray(selectedIds) || !selectedIds.length || new Set(selectedIds).size !== selectedIds.length || selectedIds.some((id) => typeof id !== "string" || !ids.has(id))) {
+    if (!Array.isArray(selectedIds) || (!options?.allowEmpty && !selectedIds.length) || new Set(selectedIds).size !== selectedIds.length || selectedIds.some((id) => typeof id !== "string" || !ids.has(id))) {
         throw new VideoPluginError("invalid-input", "复核草稿或选择数据无效，未保存");
     }
     return [...selectedIds];

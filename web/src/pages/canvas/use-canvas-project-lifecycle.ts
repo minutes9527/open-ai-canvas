@@ -7,6 +7,7 @@ import type { CanvasBackgroundMode } from "@/lib/canvas-theme";
 import { removeCanvasDrawing } from "@/lib/canvas/canvas-drawing-storage";
 import { normalizeCanvasNodeTimestamps } from "@/lib/canvas/canvas-node-timestamps";
 import { hydrateAssistantImages, resetInterruptedGeneration } from "@/lib/canvas/canvas-project-generation";
+import { normalizeFrameScriptStoryboardState } from "@/lib/framescript-video-review/storyboard-content";
 import { listAddedSkills, type Skill } from "@/services/api/skills";
 import { createCanvasProjectWithRemoteSync, deleteCanvasProjectsWithRemoteSync, loadCanvasProjectForEditing, localSavedRemotePendingMessage, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { flushCanvasStorePersistence, useCanvasStore, type CanvasProject } from "@/stores/canvas/use-canvas-store";
@@ -96,7 +97,10 @@ export function useCanvasProjectLifecycle({
             const restoredAppearance = targetProject.appearance
                 ? normalizeCanvasAppearance(targetProject.appearance, fallbackTheme)
                 : canvasAppearanceForTheme(fallbackTheme);
-            const initialNodes = normalizeCanvasNodeTimestamps(resetInterruptedGeneration(targetProject.nodes), {
+            const initialNodes = normalizeCanvasNodeTimestamps(resetInterruptedGeneration(targetProject.nodes).map((node) => {
+                const storyboard = normalizeFrameScriptStoryboardState(node.metadata?.frameScriptStoryboard);
+                return storyboard ? { ...node, metadata: { ...node.metadata, frameScriptStoryboard: storyboard } } : node;
+            }), {
                 createdAt: targetProject.createdAt,
                 updatedAt: targetProject.updatedAt,
             });

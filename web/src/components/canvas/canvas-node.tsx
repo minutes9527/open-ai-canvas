@@ -14,6 +14,7 @@ import type { CanvasResourceReference } from "@/lib/canvas/canvas-resource-refer
 import { PortraitClearanceIcon } from "@/components/canvas/portrait-clearance/portrait-clearance-icon";
 import { PORTRAIT_CLEARANCE_NODE_TYPE } from "@/lib/portrait-clearance/contracts";
 import { ART_CRITIQUE_NODE_TYPE } from "@/lib/art-critique/contracts";
+import { FRAMESCRIPT_STORYBOARD_NODE_TYPE } from "@/lib/framescript-video-review/contracts";
 import { getNodeDefinition, getNodeMinSize, shouldKeepAspectRatio } from "@/lib/canvas/node-registry";
 import { CanvasNodeContent, CanvasNodeImageInfo } from "./canvas-node-content";
 
@@ -371,6 +372,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                     <CanvasNodeContent
                         node={data}
                         theme={theme}
+                        scale={scale}
+                        onConnectStart={onConnectStart}
                         isEditingContent={isEditingContent}
                         textareaRef={textareaRef}
                         isBatchRoot={isBatchRoot}
@@ -480,8 +483,8 @@ export const CanvasNode = React.memo(function CanvasNode({
                 </> : null}
             </div>
 
-            {!readOnly && data.type !== CanvasNodeType.Script ? <ConnectionSideRail side="left" scale={scale} theme={theme} visible={hovered || forceInputVisible} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "target", undefined, anchorRatio)} /> : null}
-            {!readOnly && data.type !== CanvasNodeType.Script && data.type !== CanvasNodeType.Config && showOutputConnection ? <ConnectionSideRail side="right" scale={scale} theme={theme} visible={hovered} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "source", undefined, anchorRatio)} /> : null}
+            {!readOnly && data.type !== CanvasNodeType.Script && data.type !== FRAMESCRIPT_STORYBOARD_NODE_TYPE ? <ConnectionSideRail side="left" scale={scale} theme={theme} visible={hovered || forceInputVisible} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "target", undefined, anchorRatio)} /> : null}
+            {!readOnly && data.type !== CanvasNodeType.Script && data.type !== FRAMESCRIPT_STORYBOARD_NODE_TYPE && data.type !== CanvasNodeType.Config && showOutputConnection ? <ConnectionSideRail side="right" scale={scale} theme={theme} visible={hovered} onPointerDown={(event, anchorRatio) => onConnectStart(event, data.id, "source", undefined, anchorRatio)} /> : null}
 
         </div>
     );

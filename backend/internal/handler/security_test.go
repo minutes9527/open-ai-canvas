@@ -37,6 +37,17 @@ func TestAuthorizeSystemProxyAllowsGrokImageJSONEdits(t *testing.T) {
 	}
 }
 
+func TestAuthorizeSystemProxyAllowsAudioTranscriptions(t *testing.T) {
+	var body strings.Builder
+	writer := multipart.NewWriter(&body)
+	_ = writer.WriteField("model", "qwen3-asr-flash-2026-02-10")
+	_ = writer.Close()
+	channel := &model.ModelChannel{APIFormat: "openai", ModelsJSON: `["qwen3-asr-flash-2026-02-10"]`}
+	if err := authorizeSystemProxy(channel, model.ChannelInterfaceOpenAIAudio, http.MethodPost, "/audio/transcriptions", writer.FormDataContentType(), []byte(body.String())); err != nil {
+		t.Fatalf("authorizeSystemProxy() error = %v", err)
+	}
+}
+
 func TestAuthorizeCustomRelayAllowsModelsAndAgentEndpoints(t *testing.T) {
 	tests := []struct {
 		method      string

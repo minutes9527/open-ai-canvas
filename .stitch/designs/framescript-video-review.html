@@ -1,0 +1,703 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="zh-CN"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>FrameScript AI - 影策 · 智能分镜提取工作流</title>
+<!-- Material Symbols Outlined -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Inter & PingFang SC Typography via CDN -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind CSS CDN -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<!-- Tailwind Config verbatim from Design System -->
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "on-primary-container": "#636565",
+            "secondary": "#c8c6c5",
+            "surface-container-lowest": "#0e0e0e",
+            "secondary-fixed": "#e4e2e1",
+            "on-error": "#690005",
+            "tertiary-container": "#eae1dd",
+            "on-secondary-fixed": "#1b1c1c",
+            "primary": "#ffffff",
+            "tertiary-fixed": "#eae1dd",
+            "on-primary": "#2f3131",
+            "soft-selection": "rgba(255,255,255,0.09)",
+            "on-surface-variant": "#c4c7c8",
+            "on-secondary": "#303030",
+            "warning-amber": "#d97706",
+            "frame-green": "#34a853",
+            "primary-fixed-dim": "#c6c6c7",
+            "tertiary": "#ffffff",
+            "on-tertiary-container": "#696360",
+            "on-tertiary": "#342f2d",
+            "inverse-surface": "#e5e2e1",
+            "video-magenta": "#d52d89",
+            "secondary-fixed-dim": "#c8c6c5",
+            "outline": "#8e9192",
+            "surface-tint": "#c6c6c7",
+            "paper-accent": "#f5f5f5",
+            "carbon-canvas": "#0f0f0f",
+            "secondary-container": "#474746",
+            "outline-variant": "#444748",
+            "error": "#ffb4ab",
+            "on-secondary-fixed-variant": "#474746",
+            "surface-container-low": "#1c1b1b",
+            "obsidian-surface": "#181818",
+            "error-container": "#93000a",
+            "border-strong": "#333333",
+            "on-background": "#e5e2e1",
+            "inverse-primary": "#5d5f5f",
+            "surface": "#141313",
+            "primary-container": "#e2e2e2",
+            "surface-container": "#201f1f",
+            "surface-bright": "#3a3939",
+            "on-primary-fixed": "#1a1c1c",
+            "error-red": "#dc2626",
+            "surface-container-highest": "#353434",
+            "inverse-on-surface": "#313030",
+            "on-tertiary-fixed-variant": "#4b4643",
+            "slate-raised": "#2a2a2a",
+            "on-primary-fixed-variant": "#454747",
+            "surface-variant": "#353434",
+            "surface-dim": "#141313",
+            "tertiary-fixed-dim": "#cec5c1",
+            "on-surface": "#e5e2e1",
+            "on-secondary-container": "#b6b5b4",
+            "background": "#141313",
+            "primary-fixed": "#e2e2e2",
+            "hairline-border": "#222222",
+            "surface-container-high": "#2a2a2a",
+            "on-tertiary-fixed": "#1f1b19",
+            "on-error-container": "#ffdad6",
+            "success-green": "#16a34a"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.25rem",
+            "lg": "0.5rem",
+            "xl": "0.75rem",
+            "full": "9999px"
+          },
+          "spacing": {
+            "space-xs": "4px",
+            "space-xl": "32px",
+            "gutter": "16px",
+            "space-sm": "8px",
+            "space-md": "16px",
+            "space-lg": "24px",
+            "margin": "16px"
+          },
+          "fontFamily": {
+            "display": ["Inter Variable, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
+            "body": ["Inter Variable, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
+            "title": ["Inter Variable, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
+            "caption": ["Inter Variable, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"],
+            "heading": ["Inter Variable, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif"]
+          },
+          "fontSize": {
+            "display": ["36px", { "lineHeight": "44px", "letterSpacing": "-0.02em", "fontWeight": "700" }],
+            "body": ["14px", { "lineHeight": "22px", "letterSpacing": "0", "fontWeight": "400" }],
+            "title": ["22px", { "lineHeight": "30px", "letterSpacing": "-0.01em", "fontWeight": "650" }],
+            "caption": ["12px", { "lineHeight": "18px", "letterSpacing": "0", "fontWeight": "500" }],
+            "heading": ["16px", { "lineHeight": "24px", "letterSpacing": "0", "fontWeight": "600" }]
+          }
+        },
+      },
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 20;
+      font-size: 18px;
+      line-height: 1;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      vertical-align: middle;
+    }
+    .canvas-dots {
+      background-size: 34px 34px;
+      background-image: radial-gradient(circle, #242424 1px, transparent 1px);
+    }
+    /* Custom refined scrollbars */
+    ::-webkit-scrollbar {
+      width: 5px;
+      height: 5px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #141313;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #2a2a2a;
+      border-radius: 4px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #444748;
+    }
+  </style>
+</head>
+<body class="bg-carbon-canvas text-on-surface font-body text-body selection:bg-soft-selection overflow-hidden h-screen w-screen flex flex-col antialiased select-none">
+<!-- ==================== TOP NAVIGATION BAR ==================== -->
+<!-- Conforms strictly to TopNavBar in Shared Components JSON with exact required classes & branding -->
+<header class="bg-obsidian-surface dark:bg-obsidian-surface text-primary dark:text-primary docked full-width top-0 z-50 h-12 border-b border-hairline-border dark:border-hairline-border flex justify-between items-center w-full px-space-md max-w-full">
+<!-- Left: Brand / Back / Project Context -->
+<div class="flex items-center gap-space-md">
+<button class="flex items-center gap-1.5 px-2.5 py-1 rounded bg-surface-container-low hover:bg-surface-container hover:text-primary border border-hairline-border text-on-surface-variant font-caption text-caption transition-colors duration-150 active:scale-[0.98]">
+<span class="material-symbols-outlined text-[16px]">arrow_back</span>
+<span>返回项目</span>
+</button>
+<div class="h-4 w-px bg-hairline-border"></div>
+<div class="flex items-center gap-2">
+<span class="font-heading text-heading font-bold text-primary dark:text-primary tracking-tight">FrameScript AI</span>
+<span class="text-outline-variant font-caption">/</span>
+<span class="font-heading text-heading text-primary">影策 · 智能分镜提取</span>
+<span class="text-outline-variant font-caption">/</span>
+<span class="font-caption text-caption text-on-surface-variant">短片工作区 / FrameScript-01</span>
+</div>
+<div class="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-surface-container-lowest border border-hairline-border text-frame-green font-caption text-caption">
+<span class="w-1.5 h-1.5 rounded-full bg-frame-green animate-pulse"></span>
+<span class="text-on-surface-variant text-[11px]">云端已保存</span>
+</div>
+</div>
+<!-- Center: Global Workflow Tabs (From TopNavBar Spec: Active Canvas) -->
+<nav class="hidden md:flex items-center gap-6 h-full pt-1">
+<button class="text-primary dark:text-primary border-b-2 border-primary pb-1 font-heading text-heading flex items-center gap-1">
+<span>Canvas</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant pb-1 font-heading text-heading hover:text-primary dark:hover:text-primary transition-colors duration-150">
+<span>Timeline</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant pb-1 font-heading text-heading hover:text-primary dark:hover:text-primary transition-colors duration-150">
+<span>Models</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant pb-1 font-heading text-heading hover:text-primary dark:hover:text-primary transition-colors duration-150">
+<span>Runs</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant pb-1 font-heading text-heading hover:text-primary dark:hover:text-primary transition-colors duration-150">
+<span>Artifacts</span>
+</button>
+</nav>
+<!-- Right: Collab, Actions, Icons -->
+<div class="flex items-center gap-space-sm">
+<!-- Collab Avatars -->
+<div class="flex items-center -space-x-1.5 mr-2">
+<div class="w-6 h-6 rounded-full border border-obsidian-surface bg-surface-container-high flex items-center justify-center text-[10px] font-caption text-primary" title="Leo (Editor)">L</div>
+<div class="w-6 h-6 rounded-full border border-obsidian-surface bg-video-magenta flex items-center justify-center text-[10px] font-caption text-white font-bold" title="You (Lead Designer)">Me</div>
+</div>
+<!-- Trailing Secondary: Run Workflow -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-surface-container-high hover:bg-surface-bright border border-hairline-border text-on-surface font-caption text-caption transition-colors duration-150 active:scale-[0.98]">
+<span class="material-symbols-outlined text-[16px] text-frame-green">play_arrow</span>
+<span>运行工作流</span>
+</button>
+<!-- Trailing Primary: Export Script -->
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded bg-paper-accent hover:bg-primary text-on-primary font-caption text-caption font-semibold transition-colors duration-150 shadow-sm active:scale-[0.98]">
+<span class="material-symbols-outlined text-[16px]">file_download</span>
+<span>导出分镜</span>
+</button>
+<div class="h-4 w-px bg-hairline-border mx-1"></div>
+<!-- Trailing Icon Actions -->
+<button class="w-7 h-7 rounded flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors duration-150" title="History">
+<span class="material-symbols-outlined text-[18px]">history</span>
+</button>
+<button class="w-7 h-7 rounded flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors duration-150" title="Tune / Settings">
+<span class="material-symbols-outlined text-[18px]">tune</span>
+</button>
+<button class="w-7 h-7 rounded flex items-center justify-center text-on-surface-variant hover:text-primary hover:bg-surface-container transition-colors duration-150" title="Help">
+<span class="material-symbols-outlined text-[18px]">help</span>
+</button>
+<div class="w-6 h-6 rounded-full overflow-hidden border border-hairline-border ml-1">
+<img class="w-full h-full object-cover" data-alt="Close-up professional portrait of a tech artist studio lead wearing minimalist black turtleneck against a dark slate studio backdrop with subtle rim lighting." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAsLgySN3b_lnpkvXnMAo4ymJRiYAfew7zy_zfuuaOMKkznvvozb1ACKn0jECJKN2SO9gD6jpX9gTwCD9rj8nZKjMHdVifw2Bsk_nBMNUeb0PNt--_FEOclLnJfWEKJwWKcyiTCEI9U6IjqIUNeiyAF-42-Ta1ahb92yMOHJh6hr_fHTd0CPu4gbCS4_RGBSDrzFF3P8GnWi0WmD8t0cBOfhIKeMLPIMHz9ehkibmLu-qXQ9tM9TSapMfAUbc95ANzSveAO9ge9muL_"/>
+</div>
+</div>
+</header>
+<!-- ==================== MAIN WORKSPACE AREA ==================== -->
+<div class="flex-1 relative flex overflow-hidden">
+<!-- ==================== LEFT TOOL RAIL ==================== -->
+<!-- SideNavBar from Shared Components JSON with strict classes and layout -->
+<aside class="fixed left-space-md top-16 bottom-space-md z-40 w-16 rounded-xl bg-obsidian-surface dark:bg-obsidian-surface text-primary dark:text-primary border border-hairline-border dark:border-hairline-border shadow-md flex flex-col justify-between items-center py-space-sm h-[calc(100vh-80px)]">
+<!-- Top header / Tool label -->
+<div class="flex flex-col items-center gap-1">
+<div class="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary font-heading text-heading">
+<span class="material-symbols-outlined text-[20px]">hub</span>
+</div>
+<span class="font-caption text-[10px] text-on-surface-variant tracking-wider">v2.4</span>
+</div>
+<!-- Main Tools Stack (Tabs from JSON: Select, Video Source, Engine Node, Skill Node, Annotation) -->
+<div class="flex flex-col items-center gap-2">
+<button class="bg-surface-container-high dark:bg-surface-container-high text-primary dark:text-primary rounded-lg p-2 hover:bg-soft-selection transition-colors duration-150 group relative" title="Select Tool">
+<span class="material-symbols-outlined text-[20px]">near_me</span>
+<span class="absolute left-14 bg-surface-container-highest border border-hairline-border text-on-surface text-[11px] px-2 py-0.5 rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">Select (V)</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant p-2 rounded-lg hover:bg-soft-selection hover:text-primary transition-colors duration-150 group relative" title="Video Source">
+<span class="material-symbols-outlined text-[20px]">video_file</span>
+<span class="absolute left-14 bg-surface-container-highest border border-hairline-border text-on-surface text-[11px] px-2 py-0.5 rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">Video Source</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant p-2 rounded-lg hover:bg-soft-selection hover:text-primary transition-colors duration-150 group relative" title="Engine Node">
+<span class="material-symbols-outlined text-[20px]">psychology</span>
+<span class="absolute left-14 bg-surface-container-highest border border-hairline-border text-on-surface text-[11px] px-2 py-0.5 rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">Engine Node</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant p-2 rounded-lg hover:bg-soft-selection hover:text-primary transition-colors duration-150 group relative" title="Skill Node">
+<span class="material-symbols-outlined text-[20px]">hub</span>
+<span class="absolute left-14 bg-surface-container-highest border border-hairline-border text-on-surface text-[11px] px-2 py-0.5 rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">Skill Node</span>
+</button>
+<button class="text-on-surface-variant dark:text-on-surface-variant p-2 rounded-lg hover:bg-soft-selection hover:text-primary transition-colors duration-150 group relative" title="Annotation">
+<span class="material-symbols-outlined text-[20px]">draw</span>
+<span class="absolute left-14 bg-surface-container-highest border border-hairline-border text-on-surface text-[11px] px-2 py-0.5 rounded shadow-lg opacity-0 pointer-events-none group-hover:opacity-100 transition-opacity z-50 whitespace-nowrap">Annotation (A)</span>
+</button>
+<div class="w-8 h-px bg-hairline-border my-1"></div>
+<!-- Add Node CTA -->
+<button class="w-9 h-9 rounded-lg bg-surface-container border border-dashed border-outline-variant hover:border-primary text-on-surface-variant hover:text-primary flex items-center justify-center transition-colors active:scale-95" title="Add Node">
+<span class="material-symbols-outlined text-[20px]">add</span>
+</button>
+</div>
+<!-- Footer Icons (Settings, Shortcuts) -->
+<div class="flex flex-col items-center gap-2">
+<button class="text-on-surface-variant hover:text-primary p-2 rounded-lg hover:bg-soft-selection transition-colors duration-150" title="Shortcuts">
+<span class="material-symbols-outlined text-[18px]">keyboard</span>
+</button>
+<button class="text-on-surface-variant hover:text-primary p-2 rounded-lg hover:bg-soft-selection transition-colors duration-150" title="Settings">
+<span class="material-symbols-outlined text-[18px]">settings</span>
+</button>
+</div>
+</aside>
+<!-- ==================== INFINITE CANVAS STAGE ==================== -->
+<main class="flex-1 h-full relative overflow-hidden canvas-dots flex items-center justify-start pl-28 pr-[430px]">
+<!-- SVG INTER-NODE CONNECTOR CABLES (Absolute Layer) -->
+<svg class="absolute inset-0 w-full h-full pointer-events-none z-10" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<!-- Flow Gradients -->
+<lineargradient id="cableGrad1" x1="0%" x2="100%" y1="0%" y2="0%">
+<stop offset="0%" stop-color="#d52d89" stop-opacity="0.9"></stop>
+<stop offset="50%" stop-color="#34a853" stop-opacity="0.9"></stop>
+<stop offset="100%" stop-color="#d97706" stop-opacity="1"></stop>
+</lineargradient>
+<lineargradient id="cableGrad2" x1="0%" x2="100%" y1="0%" y2="0%">
+<stop offset="0%" stop-color="#d97706" stop-opacity="0.8"></stop>
+<stop offset="100%" stop-color="#444748" stop-opacity="0.4"></stop>
+</lineargradient>
+<filter height="140%" id="glow" width="140%" x="-20%" y="-20%">
+<fegaussianblur result="blur" stddeviation="3"></fegaussianblur>
+<fecomposite in="SourceGraphic" in2="blur" operator="over"></fecomposite>
+</filter>
+</defs>
+<!-- Cable 1: Node 1 (Source) right port -> Node 2 (Engine) left port -->
+<!-- Coordinates dynamically align with node centers: (396, 385) to (470, 340) approx relative -->
+<path d="M 390 380 C 430 380, 440 330, 475 330" fill="none" filter="url(#glow)" stroke="url(#cableGrad1)" stroke-linecap="round" stroke-width="2.5"></path>
+<circle cx="390" cy="380" fill="#d52d89" r="4.5"></circle>
+<circle cx="475" cy="330" fill="#d97706" r="4.5"></circle>
+<!-- Cable 2: Node 2 (Engine) right port -> Node 3 (Skill Node) left port -->
+<path d="M 855 350 C 900 350, 910 380, 955 380" fill="none" stroke="url(#cableGrad2)" stroke-dasharray="4 4" stroke-linecap="round" stroke-width="2"></path>
+<circle cx="855" cy="350" fill="#d97706" r="4"></circle>
+<circle cx="955" cy="380" fill="#444748" r="4"></circle>
+</svg>
+<!-- GRAPH NODES CONTAINER (Horizontal Flow) -->
+<div class="relative z-20 flex items-start gap-12 pt-4">
+<!-- ==================== NODE 1: SOURCE VIDEO NODE (~280px) ==================== -->
+<div class="w-[280px] bg-obsidian-surface rounded-xl border border-hairline-border shadow-md flex flex-col transition-all duration-150 hover:border-border-strong group">
+<!-- Node Header -->
+<div class="p-3 border-b border-hairline-border flex items-center justify-between">
+<div class="flex items-center gap-2 overflow-hidden">
+<span class="w-5 h-5 rounded flex items-center justify-center bg-video-magenta/15 text-video-magenta">
+<span class="material-symbols-outlined text-[15px]">movie</span>
+</span>
+<span class="font-heading text-[13px] text-primary truncate" title="素材视频 · 垂直短片.mp4">素材视频 · 垂直短片.mp4</span>
+</div>
+<span class="px-1.5 py-0.5 rounded text-[10px] font-caption bg-video-magenta/15 text-video-magenta border border-video-magenta/30">RAW</span>
+</div>
+<!-- Video Visual Preview (9:16 portrait) -->
+<div class="p-3">
+<div class="relative w-full aspect-[9/14] rounded-lg overflow-hidden border border-hairline-border bg-surface-container-lowest group/thumb">
+<img class="w-full h-full object-cover" data-alt="A cinematic 9:16 vertical close-up frame of a stylish cyberpunk character wearing high-tech glowing dark matte headphones in a dimly lit rainy nocturnal cityscape with subtle magenta reflections and volumetric mist." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCVMvKBXfu0nd01oXT1uLRU4jUk9WTAEyiEwWBUm5zJv9G_H1UdHNf-NGU935viPLWP2R6_a5rAW6zel-b3d_A3RbqNaDq9SoNFe3Yw35hJkNiDFrlxALuL4oreemZO1OeurRf9YClT3dyGovcgl9kN3pxhPwm1sq9QV7NKDnE2m42aSWoesgG6xWrFHZBK-oju59AtxwqeOnrQBd-jSmV6nes5cPC56TyKPOf8NJ1kpgo9ZJDKLDnB4Jvh2v-QHM0WolrqvvCzNXPe"/>
+<!-- Video Overlay Badges -->
+<div class="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/30 flex flex-col justify-between p-2.5">
+<div class="flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/60 backdrop-blur-md text-[10px] font-caption text-secondary">00:18 / 00:45</span>
+<span class="px-1.5 py-0.5 rounded bg-frame-green/20 text-frame-green border border-frame-green/30 text-[10px] font-caption">60 FPS</span>
+</div>
+<div class="flex items-center justify-center">
+<div class="w-10 h-10 rounded-full bg-black/60 backdrop-blur-md border border-white/20 flex items-center justify-center text-primary group-hover/thumb:scale-110 transition-transform">
+<span class="material-symbols-outlined text-[22px]">play_arrow</span>
+</div>
+</div>
+<div class="text-[11px] font-caption text-on-surface text-center bg-black/50 py-1 rounded backdrop-blur-sm">
+                  1080×1920 · H.265
+                </div>
+</div>
+</div>
+<!-- Metadata footer -->
+<div class="mt-2.5 flex items-center justify-between text-[11px] font-caption text-on-surface-variant">
+<span>来源: 本地上传</span>
+<span>48.2 MB</span>
+</div>
+</div>
+<!-- Output Port Ribbon -->
+<div class="relative px-3 py-2 border-t border-hairline-border bg-surface-container-lowest/60 rounded-b-xl flex justify-between items-center text-[11px] font-caption">
+<span class="text-on-surface-variant">输出接口</span>
+<div class="flex items-center gap-1.5 text-primary">
+<span class="text-video-magenta font-medium">视频流 (Raw)</span>
+<!-- Connection Port Dot -->
+<span class="w-3 h-3 rounded-full bg-video-magenta border-2 border-obsidian-surface shadow-sm inline-block"></span>
+</div>
+</div>
+</div>
+<!-- ==================== NODE 2: FRAMESCRIPT VIDEO ENGINE NODE (~370px, Active State) ==================== -->
+<div class="w-[370px] bg-obsidian-surface rounded-xl border-2 border-warning-amber/70 shadow-2xl flex flex-col relative transition-all duration-150">
+<!-- Input Port Link Point (Left) -->
+<div class="absolute -left-3 top-[32px] flex items-center">
+<span class="w-3 h-3 rounded-full bg-warning-amber border-2 border-obsidian-surface shadow-sm" title="视频源输入"></span>
+</div>
+<!-- Node Header -->
+<div class="p-3.5 border-b border-hairline-border flex items-center justify-between bg-surface-container-low/40 rounded-t-xl">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-primary/10 border border-primary/20 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-[16px]">psychology</span>
+</div>
+<span class="font-heading text-[14px] text-primary font-semibold">FrameScript 视频理解引擎</span>
+</div>
+<span class="px-2 py-0.5 rounded-full text-[11px] font-caption bg-warning-amber/15 text-warning-amber border border-warning-amber/30 flex items-center gap-1">
+<span class="w-1.5 h-1.5 rounded-full bg-warning-amber animate-ping"></span>
+              等待人工确认 (6/8 候选帧)
+            </span>
+</div>
+<div class="p-3.5 space-y-3.5">
+<!-- Three Step Indicators Horizontal Bar -->
+<div class="bg-surface-container-lowest p-2 rounded-lg border border-hairline-border">
+<div class="grid grid-cols-3 gap-1 text-[11px] font-caption">
+<!-- Step 1: Scan Completed -->
+<div class="flex flex-col items-center gap-1 p-1 rounded bg-surface-container-low text-center">
+<div class="flex items-center gap-1 text-frame-green font-medium">
+<span class="material-symbols-outlined text-[14px]">check_circle</span>
+<span>扫描候选帧</span>
+</div>
+<span class="text-[10px] text-on-surface-variant">12.4s 完成</span>
+</div>
+<!-- Step 2: In-Progress Amber Active -->
+<div class="flex flex-col items-center gap-1 p-1 rounded bg-warning-amber/15 border border-warning-amber/40 text-center">
+<div class="flex items-center gap-1 text-warning-amber font-semibold">
+<span class="material-symbols-outlined text-[14px]">pending</span>
+<span>人工确认</span>
+</div>
+<span class="text-[10px] text-warning-amber/90 font-medium">待复核 6/8</span>
+</div>
+<!-- Step 3: Pending -->
+<div class="flex flex-col items-center gap-1 p-1 rounded text-center opacity-40">
+<div class="flex items-center gap-1 text-on-surface-variant">
+<span class="material-symbols-outlined text-[14px]">radio_button_unchecked</span>
+<span>逐帧分析</span>
+</div>
+<span class="text-[10px] text-on-surface-variant">排队中</span>
+</div>
+</div>
+</div>
+<!-- Summary Metrics & Status Cards -->
+<div class="space-y-2">
+<!-- Audio Transcription Ready -->
+<div class="flex items-center justify-between p-2.5 rounded-lg bg-surface-container-low border border-hairline-border">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-frame-green text-[17px]">record_voice_over</span>
+<span class="text-[12px] font-caption text-on-surface">并行语音转写已就绪</span>
+</div>
+<span class="text-[11px] font-caption text-on-surface-variant">148字中英文转写</span>
+</div>
+<!-- Candidate Frame Count Highlight -->
+<div class="p-2.5 rounded-lg bg-surface-container-low border border-hairline-border flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-warning-amber text-[17px]">photo_library</span>
+<span class="text-[12px] font-caption text-on-surface">捕获关键变化帧</span>
+</div>
+<span class="text-[12px] font-caption font-semibold text-primary">共 8 帧 · 预选 6 帧</span>
+</div>
+</div>
+<!-- Local Adapter Privacy Note -->
+<div class="text-[11px] font-caption text-on-surface-variant bg-surface-container-lowest/80 p-2 rounded border border-hairline-border/70 flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-outline">verified_user</span>
+<span>🔒 已通过受信任的本地 FrameScript 适配器隔离处理</span>
+</div>
+<!-- Prominent Review Action CTA -->
+<button class="w-full py-2.5 px-3 rounded-lg bg-warning-amber hover:bg-warning-amber/90 text-on-secondary-fixed font-heading text-[13px] font-semibold flex items-center justify-center gap-2 shadow-lg transition-transform active:scale-[0.98]">
+<span class="material-symbols-outlined text-[17px]">checklist</span>
+<span>人工筛选候选帧 (8)</span>
+<span class="material-symbols-outlined text-[16px] ml-auto">arrow_forward</span>
+</button>
+</div>
+<!-- Output Port Ribbon -->
+<div class="relative px-3.5 py-2 border-t border-hairline-border bg-surface-container-lowest/60 rounded-b-xl flex justify-between items-center text-[11px] font-caption">
+<span class="text-on-surface-variant">接口: 结构化分析数据</span>
+<div class="flex items-center gap-1.5 text-warning-amber">
+<span class="font-medium">待输出至 Skill</span>
+<span class="w-3 h-3 rounded-full bg-warning-amber border-2 border-obsidian-surface shadow-sm inline-block"></span>
+</div>
+</div>
+</div>
+<!-- ==================== NODE 3: DOWNSTREAM SKILL NODE (~320px, Dimmed/Awaiting) ==================== -->
+<div class="w-[320px] bg-obsidian-surface/80 rounded-xl border border-dashed border-outline-variant/60 shadow-md flex flex-col opacity-80 hover:opacity-100 transition-all">
+<!-- Input Port Link Point (Left) -->
+<div class="relative -left-3 top-[26px]">
+<span class="w-3 h-3 rounded-full bg-surface-container-highest border border-outline shadow-sm inline-block" title="等待输入"></span>
+</div>
+<!-- Node Header -->
+<div class="p-3 border-b border-hairline-border flex items-center justify-between">
+<div class="flex items-center gap-2">
+<div class="w-5 h-5 rounded bg-surface-container-high flex items-center justify-center text-on-surface-variant">
+<span class="material-symbols-outlined text-[15px]">auto_stories</span>
+</div>
+<span class="font-heading text-[13px] text-secondary">Skill · 分镜脚本与生图提示词</span>
+</div>
+<span class="material-symbols-outlined text-outline text-[16px]">lock</span>
+</div>
+<!-- Body Content -->
+<div class="p-3 space-y-3">
+<div class="px-2 py-1 rounded bg-surface-container-lowest border border-hairline-border text-outline text-[11px] font-caption flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px]">hourglass_empty</span>
+<span>等待上游 FrameScript 确认</span>
+</div>
+<!-- Payload Manifest preview list -->
+<div class="space-y-1.5">
+<span class="text-[11px] font-caption text-outline uppercase tracking-wider block">入参清单 (Payload Manifest)</span>
+<div class="p-2 rounded bg-surface-container-low border border-hairline-border text-[11px] font-caption flex items-center justify-between">
+<span class="text-on-surface-variant">入参 1: 确认关键参考帧</span>
+<span class="text-warning-amber font-medium">待输入</span>
+</div>
+<div class="p-2 rounded bg-surface-container-low border border-hairline-border text-[11px] font-caption flex items-center justify-between">
+<span class="text-on-surface-variant">入参 2: 音频时间轴转写</span>
+<span class="text-frame-green font-medium">就绪 (Ready)</span>
+</div>
+<div class="p-2 rounded bg-surface-container-low border border-hairline-border text-[11px] font-caption flex items-center justify-between">
+<span class="text-on-surface-variant">入参 3: 运动向量与提示词模板</span>
+<span class="text-outline">待处理</span>
+</div>
+</div>
+<!-- Output Target -->
+<div class="pt-2 border-t border-hairline-border/60 text-[11px] font-caption flex items-center justify-between text-on-surface-variant">
+<span>下游目标:</span>
+<span class="text-primary font-medium">即梦 Seedance 2.5</span>
+</div>
+</div>
+<!-- Bottom Footer Status -->
+<div class="px-3 py-2 border-t border-hairline-border bg-surface-container-lowest/50 rounded-b-xl text-[11px] font-caption text-outline text-right">
+            阻塞等待中
+          </div>
+</div>
+</div>
+<!-- ==================== BOTTOM FLOATING DOCK ==================== -->
+<!-- Center: Assistant Command Dock -->
+<div class="absolute bottom-6 left-1/2 -translate-x-1/2 z-30 flex items-center gap-3">
+<div class="bg-obsidian-surface/95 backdrop-blur-xl border border-hairline-border px-3 py-2 rounded-xl shadow-2xl flex items-center gap-3 w-[560px]">
+<!-- Model Badge -->
+<div class="flex items-center gap-1.5 px-2 py-1 rounded bg-surface-container-high border border-hairline-border text-[11px] font-caption text-primary whitespace-nowrap">
+<span class="w-1.5 h-1.5 rounded-full bg-frame-green"></span>
+<span>FrameScript v2.4 + Seedance</span>
+</div>
+<!-- Prompt Input -->
+<input class="flex-1 bg-transparent border-none text-[13px] font-body text-primary placeholder:text-outline-variant focus:outline-none focus:ring-0 px-1 py-0" placeholder="输入工作流指令或调整提示词..." type="text"/>
+<!-- Action Generate Button -->
+<button class="px-3 py-1.5 rounded bg-primary hover:bg-paper-accent text-on-primary font-caption text-caption font-semibold flex items-center gap-1 transition-colors active:scale-95 shadow-sm">
+<span class="material-symbols-outlined text-[16px]">spark</span>
+<span>生成指令</span>
+</button>
+</div>
+</div>
+<!-- Bottom-Right: Zoom & Viewport Controls -->
+<div class="absolute bottom-6 right-[440px] z-30 flex items-center gap-1 bg-obsidian-surface/95 backdrop-blur-md border border-hairline-border p-1 rounded-lg shadow-xl text-on-surface-variant font-caption text-[11px]">
+<button class="w-7 h-7 rounded hover:bg-surface-container hover:text-primary flex items-center justify-center transition-colors" title="Zoom Out">
+<span class="material-symbols-outlined text-[16px]">remove</span>
+</button>
+<span class="px-1.5 text-primary font-medium min-w-[36px] text-center">85%</span>
+<button class="w-7 h-7 rounded hover:bg-surface-container hover:text-primary flex items-center justify-center transition-colors" title="Zoom In">
+<span class="material-symbols-outlined text-[16px]">add</span>
+</button>
+<div class="w-px h-3 bg-hairline-border mx-0.5"></div>
+<button class="w-7 h-7 rounded hover:bg-surface-container hover:text-primary flex items-center justify-center transition-colors" title="Fit to Screen">
+<span class="material-symbols-outlined text-[16px]">fit_screen</span>
+</button>
+</div>
+</main>
+<!-- ==================== RIGHT-SIDE INSPECTOR REVIEW PANEL (420px wide) ==================== -->
+<!-- High-density contact sheet candidate frame review interface -->
+<aside class="w-[420px] bg-obsidian-surface border-l border-hairline-border flex flex-col h-full z-40 relative shadow-2xl flex-shrink-0">
+<!-- Panel Header -->
+<div class="p-4 border-b border-hairline-border flex items-start justify-between bg-surface-container-lowest/40">
+<div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-warning-amber text-[20px]">filter_center_focus</span>
+<h2 class="font-heading text-[16px] text-primary font-semibold">候选帧复核</h2>
+<span class="px-2 py-0.2 rounded bg-warning-amber/15 text-warning-amber text-[10px] font-caption font-bold">待确认</span>
+</div>
+<p class="text-[12px] font-caption text-on-surface-variant mt-1">检查 AI 提取的候选参考帧并确认有效关键帧</p>
+</div>
+<button class="text-on-surface-variant hover:text-primary p-1 rounded hover:bg-surface-container transition-colors" title="Close Panel">
+<span class="material-symbols-outlined text-[18px]">close</span>
+</button>
+</div>
+<!-- Filter & Selection Bar -->
+<div class="px-4 py-2.5 border-b border-hairline-border bg-surface-container-low/60 flex flex-col gap-2">
+<div class="flex items-center justify-between text-[12px] font-caption">
+<div class="flex items-center gap-1.5">
+<span class="text-primary font-semibold">已选 6</span>
+<span class="text-outline">/ 8 帧</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="text-primary hover:underline font-medium">全选</button>
+<span class="text-outline-variant">·</span>
+<button class="text-on-surface-variant hover:text-primary">反选</button>
+</div>
+</div>
+<!-- Trigger Type Chips Filter Scrollable -->
+<div class="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none text-[11px] font-caption">
+<button class="px-2 py-0.5 rounded bg-primary text-on-primary font-medium shrink-0">全部</button>
+<button class="px-2 py-0.5 rounded bg-surface-container hover:bg-surface-bright text-on-surface-variant hover:text-primary border border-hairline-border shrink-0">镜头变化 3</button>
+<button class="px-2 py-0.5 rounded bg-surface-container hover:bg-surface-bright text-on-surface-variant hover:text-primary border border-hairline-border shrink-0">人物转身 2</button>
+<button class="px-2 py-0.5 rounded bg-surface-container hover:bg-surface-bright text-on-surface-variant hover:text-primary border border-hairline-border shrink-0">产品特写 2</button>
+<button class="px-2 py-0.5 rounded bg-surface-container hover:bg-surface-bright text-on-surface-variant hover:text-primary border border-hairline-border shrink-0">字幕变化 1</button>
+</div>
+</div>
+<!-- Contact Sheet Multi-column Card Grid (2-column portrait cards) -->
+<div class="flex-1 overflow-y-auto p-3.5 space-y-3">
+<div class="grid grid-cols-2 gap-3">
+<!-- Card 1: 00:02.14, 镜头变化, Checked, +88% -->
+<div class="group relative rounded-lg border-2 border-primary bg-surface-container-lowest overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover" data-alt="Cinematic opening shot of an urban neon cityscape with atmospheric night rain and towering skyscrapers reflected on slick wet asphalt, shot in 9:16 vertical composition with high contrast shadows and subtle deep magenta tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuABmJmWUQJffYP2jeUpNPb54Swntim6FtYRi8n-HyU_es_nsGiXoaS6svGMiXK5XmMc4Faxcfpse2ubENPD9FJ7_eMhMrqFoZzBVKrG4pq-xpjTO_jF0aELQ33znNX-aSw272noQaVTrmrzTspZ0X1MJhN1bAUdpEjb0kRrmXDSWJHlaDYrfXz3tXUOlHNt_iwGpps4KtBUIRATKGUDCHTAPDn9GkYHxTNAzGm-UDHWRf9RAtDQI4Ia3uficXhwHZNaGlCPMW8C4Tun"/>
+<!-- Top Badges -->
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input checked="" class="w-4 h-4 rounded bg-black/60 border-hairline-border text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-frame-green font-semibold">+88%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-primary">00:02.14</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-secondary">镜头变化</span>
+</div>
+</div>
+</div>
+<!-- Card 2: 00:05.40, 人物转身, Checked, +94% -->
+<div class="group relative rounded-lg border-2 border-primary bg-surface-container-lowest overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover" data-alt="Close portrait of a young protagonist swiftly turning their head toward the camera against a dark moody street background, motion blur subtly highlighting their sharp features with soft studio-grade edge lighting in dark cinematic palette." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCJLhzU761mxtO2nA57AWmVCsymCapxfkFoiqCPP1yXcAX56zr_6zlT4kYj4ZuVgb1AX_8l1SQVu0T4hI6pMmzPdEeOYbaKCp6uUvHYwmUnSmIAv-4cIJjIE86uN843R0JMhuT5zGl2Win7gLMuwwvAiUBDEUPGsrWrw75Bz8MUX3sPUBZ9p410GFYvf41n4SKGhhpLHBjs1qM1X1CCk0WnCO56OAO1PglM_qfU4r84t3Y0EhqmgEpPKAq36c7wxGzCMzc_KEpjQun-"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input checked="" class="w-4 h-4 rounded bg-black/60 border-hairline-border text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-frame-green font-semibold">+94%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-primary">00:05.40</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-secondary">人物转身</span>
+</div>
+</div>
+</div>
+<!-- Card 3: 00:09.12, 产品特写, Checked, +91% -->
+<div class="group relative rounded-lg border-2 border-primary bg-surface-container-lowest overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover" data-alt="Macro close-up shot of futuristic wireless audio headphones showcasing brushed titanium hinge details, woven acoustic mesh, and a subtle glowing indicator light surrounded by deep black shadows." src="https://lh3.googleusercontent.com/aida-public/AB6AXuB5aCUo7J2fJcX8t5g-jEuTzTgtFwiJzQZVeyuhk88Oe3DglIu90ZzIj89Z8UuOvn7onQR3GL0ZelSdKLAUtYh-SNStpXldKH7zX1tTkpEhcOM1vdjEZqxhDTq-dH9htr6WuWBbEJMCV2kGkYTdCkuSmzyNikhAMpsZBjExJT1ske--6lV41KnhjXb0LHJIRzSsRA1LYwFmwg5zckmHoJr4Lg2XNbNiiG37_AhoLXDpqqcmIkdDDSDaMtJ-086adVQHNAN2QMZ5DWVD"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input checked="" class="w-4 h-4 rounded bg-black/60 border-hairline-border text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-frame-green font-semibold">+91%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-primary">00:09.12</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-secondary">产品特写</span>
+</div>
+</div>
+</div>
+<!-- Card 4: 00:14.30, 字幕变化, UNCHECKED (Deselected, Dimmer) -->
+<div class="group relative rounded-lg border border-hairline-border bg-surface-container-lowest/40 opacity-40 hover:opacity-75 overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover grayscale" data-alt="A blurred urban street background with motion trails and typography lower-third overlay in Chinese characters, subdued dark grayscale aesthetic with minimal contrast." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDYOswJaKPKS8y0El3LStqHej2BXLoth67ZtE0hTiBSTG-T2k8F7EwjzMqFvSzJyvgStQcY1nXB3EHZJKXC8VYlZCOs8BfFkZpG8W_h1jRIQeMje6TDdf9k4e0RejXAl8yh1o2Rhnj03yOqfb1O6xLJ3w1NU5GDkjFN7N-g_IqT1IJITM2LzGJic9T0TMV9KZR2V9Q_S697U3jzHNtFcNYEqu7PU9HBqK32ypbMM7JxfBTDBP6zHGKrMFZ_1NO_QmDq_4ugkR93uh2z"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input class="w-4 h-4 rounded bg-black/60 border-outline-variant text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-outline">+42%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-secondary">00:14.30</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-outline">字幕变化</span>
+</div>
+</div>
+</div>
+<!-- Card 5: 00:18.05, 镜头变化, Checked, +86% -->
+<div class="group relative rounded-lg border-2 border-primary bg-surface-container-lowest overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover" data-alt="Dynamic wide establishing vertical frame of a neon-lit crosswalk at night with silhouettes of pedestrians and high-contrast street reflection in cold blue and magenta hues." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCfJnZNdhp_DlFS7ZDXoq53LRS5gCnlquz0-pdu1szMMa6QMVecx2hEpQcLnSRETwCBKtzZuqVudftpQKY9ASrcsnHCbZ3OSC45C6FrmDw3L67b0mXO8pi1euvEfDcVcEM7W2NDUMokmV_MQPdPeceu2G6qL7YRqdBEPRPoQ9mXFkHa9ZeRbnM5YrV2JQDVnZgjUzpyIzb-ra22Sm_-wS9l52e1nS2vebuy0yxAOslKhd48O6tfkELT_wnqUIebQ9z6cHgv0CtwTg7r"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input checked="" class="w-4 h-4 rounded bg-black/60 border-hairline-border text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-frame-green font-semibold">+86%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-primary">00:18.05</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-secondary">镜头变化</span>
+</div>
+</div>
+</div>
+<!-- Card 6: 00:24.80, 产品特写, Checked, +95% -->
+<div class="group relative rounded-lg border-2 border-primary bg-surface-container-lowest overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover" data-alt="Extreme detailed close-up shot of an ergonomic smart gadget control dial resting on a dark carbon surface with precision metallic milling grooves and faint green indicator light." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbWPmFuu_VS2FMVsazHOP7P5sMe_hEqABYKhGa9ljweBk6z9W9ICsTXE_7oSP3H5Kp13QvVtcJv22HD97f0oDVthGW4beVLG6DboItAIG7D634WYdqU5l3CH98CyqkBoe6oHDx-Y0-PJtMyRopx79hT33ZEN68bOzGIoiXQ5GcLZ45WOQQMS7eC6GjCK7IGeusbB9t5WNo5ZdavW_4LtSPiu_x7bLm42T8QgF5K7qSQ0vpfn_fMB8TibvGSpMXIjLIRrePIj11F473"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input checked="" class="w-4 h-4 rounded bg-black/60 border-hairline-border text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-frame-green font-semibold">+95%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-primary">00:24.80</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-secondary">产品特写</span>
+</div>
+</div>
+</div>
+<!-- Card 7: 00:31.20, 光影跃迁, UNCHECKED (Deselected) -->
+<div class="group relative rounded-lg border border-hairline-border bg-surface-container-lowest/40 opacity-40 hover:opacity-75 overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover grayscale" data-alt="An abstract bokeh flare transit frame with soft defocussed orange circular light discs against deep shadowy architecture, moody cinematic motion blur." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCC2NQek7ZVCeu90AHwaYQ29oOhwvokm742Qy2bp3XupBpYnOmmvs_Fd2mMhfPK2YOqvDxHKkexVBA-asgbf7b0QDtcOkYG2dtdf8LS0O2oog5grD55MydMTA0ytx02oJ0fYuPqLX5s-6gEd1PwhpXlGIRGb83JLC5y6yLxJJGlxk2xg90Rwn8A9h8s9iAPiRwHiqzZzgAfvLXs36Sz1_DYGNrkdsR-Dw15GpAWDClRrAZ_q8_1zlTi2YFxUwTGR5vUCELiYeMW_vDN"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input class="w-4 h-4 rounded bg-black/60 border-outline-variant text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-outline">+38%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-secondary">00:31.20</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-outline">光影跃迁</span>
+</div>
+</div>
+</div>
+<!-- Card 8: 00:38.50, 人物转身, Checked, +89% -->
+<div class="group relative rounded-lg border-2 border-primary bg-surface-container-lowest overflow-hidden transition-all duration-150">
+<div class="relative aspect-[9/13] w-full bg-surface-container-lowest">
+<img class="w-full h-full object-cover" data-alt="Cinematic side profile of the character gazing upward toward a high-tech illuminated billboard screen at night, sharp rim lighting illuminating the cheekbone and ear with rich deep carbon canvas tones." src="https://lh3.googleusercontent.com/aida-public/AB6AXuALz7Fc7-mRzzTf6cz_pXxAKBcmWldjp5-uVwdwMHBiz9Qy7wDtHueihrTHO4368aR6dnaXWRsRpki7Kj4eRNp1MZhG030fRiX9olU0_1a0HUlWxcyqDsjSmnPFtRmcjQTRg2ThTKEBLgB5FrJZ724kAuqbTYPlnAADPIOID9O8Ft_LbpM0WCWDYFkQArlTOVsRnywB3hvmGI3ZwChmywbdE6sRgohzutNCH1lUt8GE9aNZcPXP7jzk-uwpE1qKeVwZP_3o9NecipYv"/>
+<div class="absolute top-2 left-2 right-2 flex justify-between items-center">
+<input checked="" class="w-4 h-4 rounded bg-black/60 border-hairline-border text-primary focus:ring-0 focus:ring-offset-0 cursor-pointer" type="checkbox"/>
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-frame-green font-semibold">+89%</span>
+</div>
+<div class="absolute bottom-2 left-2 right-2 flex justify-between items-center">
+<span class="px-1.5 py-0.5 rounded bg-black/70 backdrop-blur-sm text-[10px] font-caption text-primary">00:38.50</span>
+<span class="px-1.5 py-0.5 rounded bg-surface-container-high/90 text-[10px] font-caption text-secondary">人物转身</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+<!-- Sticky Footer Action Bar -->
+<div class="p-4 border-t border-hairline-border bg-surface-container-lowest flex flex-col gap-3">
+<div class="flex items-center justify-between text-[12px] font-caption">
+<span class="text-on-surface-variant">已选中 <strong class="text-primary font-semibold">6 帧</strong> 关键参考</span>
+<span class="text-frame-green flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px]">verified</span>
+<span>满足下游 Skill 阈值要求</span>
+</span>
+</div>
+<div class="grid grid-cols-5 gap-2">
+<!-- Secondary: Back to Canvas -->
+<button class="col-span-2 py-2 px-3 rounded-lg bg-surface-container-low hover:bg-surface-container border border-hairline-border text-on-surface font-caption text-[12px] font-medium transition-colors">
+            返回画布
+          </button>
+<!-- Primary Accent: Confirm 6 Frames and Start Analysis -->
+<button class="col-span-3 py-2 px-3 rounded-lg bg-paper-accent hover:bg-primary text-on-primary font-caption text-[12px] font-semibold flex items-center justify-center gap-1.5 transition-transform active:scale-[0.98] shadow-md">
+<span class="material-symbols-outlined text-[16px] text-frame-green">bolt</span>
+<span>确认 6 帧并开始分析</span>
+</button>
+</div>
+</div>
+</aside>
+</div>
+</body></html>

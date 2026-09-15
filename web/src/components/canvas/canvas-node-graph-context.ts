@@ -1,6 +1,6 @@
 import { createContext, useContext } from "react";
 
-import type { CanvasNodeData } from "@/types/canvas";
+import type { CanvasConnection, CanvasNodeData } from "@/types/canvas";
 
 // 扩展节点（对比/图表/调色等）要读自己的上游才能工作，但节点经 CanvasProjectWorldLayers
 // 渲染、CanvasNodeContentProps 里只有 node 本身，没有 nodes/connections。
@@ -8,6 +8,8 @@ import type { CanvasNodeData } from "@/types/canvas";
 // 无 Provider 时静默降级为「没有上游」，节点自行显示空状态而不是崩。
 export type CanvasNodeGraphContextValue = {
     getUpstreamNodes?: (nodeId: string) => CanvasNodeData[];
+    getNodes?: () => CanvasNodeData[];
+    getConnections?: () => CanvasConnection[];
 };
 
 export const CanvasNodeGraphContext = createContext<CanvasNodeGraphContextValue>({});
@@ -16,4 +18,12 @@ export const CanvasNodeGraphContext = createContext<CanvasNodeGraphContextValue>
 export function useUpstreamNodes(nodeId: string) {
     const { getUpstreamNodes } = useContext(CanvasNodeGraphContext);
     return getUpstreamNodes?.(nodeId) ?? [];
+}
+
+export function useCanvasNodes() {
+    return useContext(CanvasNodeGraphContext).getNodes?.() ?? [];
+}
+
+export function useCanvasConnections() {
+    return useContext(CanvasNodeGraphContext).getConnections?.() ?? [];
 }

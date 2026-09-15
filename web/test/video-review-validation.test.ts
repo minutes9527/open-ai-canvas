@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { VideoPluginError, type AnalysisResult } from "@/lib/plugins/video-plugin";
 import { assertVideoReview, confirmVideoReview, createVideoReviewDraft, type ConfirmedVideoReview, type VideoReviewDraft } from "@/lib/plugins/video-review";
+import { snapshotReviewSelection, snapshotVideoReview } from "@/lib/plugins/video-review-snapshot";
 
 const source = { kind: "asset" as const, id: "video-fixture" };
 const prepared: AnalysisResult = {
@@ -83,5 +84,29 @@ describe("video review validation at public boundaries", () => {
         expect(() => assertVideoReview(draft, JSON.parse(JSON.stringify(review)))).not.toThrow();
         expect(() => assertVideoReview(draft, { ...review, source: { ...source, id: "other-video" } })).toThrow(VideoPluginError);
         expect(() => assertVideoReview(draft, { ...review, revision: 2 })).toThrow(VideoPluginError);
+    });
+
+    test("persists only declared detector fields and rejects edited detector output", () => {
+        const draft = createVideoReviewDraft(source, {
+            ...prepared,
+            keyframes: [{
+                timeMs: 0, score: 0.8, confidence: 0.8, motionDirection: "right", reasons: ["opening"], hardTrigger: true,
+                scoreBreakdown: { adjacentDifference: 0, retainedDifference: 0, visualChange: 0, corroboration: 0, composite: 0, sceneCut: 0, transition: 0, exposureChange: 0, motion: 0 },
+            }],
+        });
+        (draft.frames[0].scoreBreakdown as Record<string, unknown>).unexpected = { blob: new Blob(["not portable"]) };
+        const snapshot = snapshotVideoReview(draft);
+        expect(snapshot.frames[0].scoreBreakdown).not.toHaveProperty("unexpected");
+        expect(snapshot.frames[0].motionDirection).toBe("right");
+
+        const review = confirmVideoReview(draft, ["frame-0"]);
+        review.frames[0].score = 0.1;
+        expect(() => assertVideoReview(draft, review)).toThrow(VideoPluginError);
+    });
+
+    test("allows an empty local checkpoint selection before manual confirmation", () => {
+        const draft = createVideoReviewDraft(source, prepared);
+        expect(snapshotReviewSelection(draft, [], { allowEmpty: true })).toEqual([]);
+        expect(() => snapshotReviewSelection(draft, [])).toThrow(VideoPluginError);
     });
 });

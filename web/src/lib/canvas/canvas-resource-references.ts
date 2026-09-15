@@ -346,7 +346,21 @@ export function buildCanvasNodeMentionReferenceMap(nodes: CanvasNodeData[], conn
         const configTargetId = configTargetBySourceId.get(node.id);
         const configInputs = configTargetId ? (resourceInputsByTargetId.get(configTargetId) || []).filter((input) => input.id !== node.id) : [];
         const ownInputs = resourceInputsByTargetId.get(node.id) || [];
-        const inputs = configInputs.length ? configInputs : ownInputs.filter((input) => input.id !== node.id);
+        const persistedReferenceIds = [
+            ...(node.metadata?.frameScriptStoryboardReferenceNodeIds || []),
+            ...(node.metadata?.frameScriptStoryboardReferenceNodeId ? [node.metadata.frameScriptStoryboardReferenceNodeId] : []),
+        ];
+        const metadataReferenceInputs = persistedReferenceIds
+            .map((referenceNodeId) => nodeById.get(referenceNodeId))
+            .filter((input): input is CanvasNodeData => input !== undefined && input.id !== node.id && isResourceNode(input));
+        const connectedInputs = configInputs.length ? configInputs : ownInputs.filter((input) => input.id !== node.id);
+        // FrameScript storyboard rows own their references. Older generated
+        // image nodes can still point at a shared Config node (for example
+        // @文本1/@图片1); persisted row references must override that stale
+        // configuration instead of being appended after it.
+        const inputs = metadataReferenceInputs.length
+            ? uniqueCanvasNodes(metadataReferenceInputs)
+            : uniqueCanvasNodes(connectedInputs);
         referencesByNodeId.set(node.id, labelResourceNodes(inputs, true));
     }
     return referencesByNodeId;
@@ -468,7 +482,7 @@ function labelResourceNodes(nodes: CanvasNodeData[], active: boolean) {
                 previewStorageKey: node.type === CanvasNodeType.Video ? node.metadata?.videoPreview?.storageKey : undefined,
                 drawingId: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingId : undefined,
                 drawingRevision: node.type === CanvasNodeType.Drawing ? node.metadata?.drawingRevision : undefined,
-                text: node.metadata?.workflowKind === "character" ? node.metadata.characterPrompt : node.type === CanvasNodeType.Text ? node.metadata?.content || node.metadata?.prompt : node.type === CanvasNodeType.Skill ? skillResourceText(node) : undefined,
+                text: node.metadata?.workflowKind === "character" ? node.metadata.characterPrompt : kind === "text" ? node.metadata?.content || node.metadata?.prompt : node.type === CanvasNodeType.Skill ? skillResourceText(node) : undefined,
                 active,
                 sourceType: node.type,
             },
