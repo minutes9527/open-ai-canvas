@@ -40,7 +40,7 @@ export type VideoBreakdown = {
 
 export function createVideoReviewDraft(source: VideoResourceRef, result: AnalysisResult): VideoReviewDraft {
     if (!result?.sourceFingerprint || !Number.isFinite(result.durationMs) || result.durationMs! <= 0 || !Array.isArray(result.keyframes) || !result.keyframes.length) fail("视频准备结果缺少原视频指纹、时长或候选帧");
-    const frames = Array.from(result.keyframes, (frame) => ({ ...frame, id: `frame-${frame?.timeMs}` }));
+    const frames = Array.from(result.keyframes, (frame) => portableReviewFrame({ ...frame, id: `frame-${frame?.timeMs}` }));
     const draft: VideoReviewDraft = {
         schema: "yingce.video-review",
         version: 1,
@@ -67,7 +67,7 @@ export function confirmVideoReview(draft: VideoReviewDraft, selectedIds: readonl
         .map((id) => {
             const frame = byId.get(id);
             if (!frame) fail("确认中包含不属于当前视频的候选帧");
-            return frame;
+            return portableReviewFrame(frame);
         })
         .sort((a, b) => a.timeMs - b.timeMs);
     return structuredClone({ state: "confirmed", source: draft.source, sourceFingerprint: draft.sourceFingerprint, revision: draft.revision, frames });
@@ -82,7 +82,28 @@ export function assertVideoReview(draft: VideoReviewDraft, review: ConfirmedVide
         draft,
         review.frames.map((frame) => frame.id),
     );
-    if (expected.frames.some((frame, index) => frame.id !== review.frames[index]?.id || frame.timeMs !== review.frames[index]?.timeMs || frame.shotId !== review.frames[index]?.shotId)) fail("候选帧已变更，请重新确认");
+    if (expected.frames.some((frame, index) => !sameReviewFrame(frame, review.frames[index]))) fail("候选帧已变更，请重新确认");
+}
+
+/**
+ * Validates a detached confirmation at the plugin boundary. The workflow also
+ * checks that the selected frames came from its draft; direct plugin callers do
+ * not have that draft, so they still need the structural/source checks here.
+ */
+export function validateConfirmedVideoReview(review: ConfirmedVideoReview, durationMs?: number) {
+    if (
+        review?.state !== "confirmed" ||
+        !review.source ||
+        !["asset", "resource"].includes(review.source.kind) ||
+        typeof review.source.id !== "string" ||
+        !/^[\w-]{1,200}$/.test(review.source.id) ||
+        typeof review.sourceFingerprint !== "string" ||
+        !/^[a-f0-9]{64}$/.test(review.sourceFingerprint) ||
+        !Number.isSafeInteger(review.revision) ||
+        review.revision < 1
+    ) fail("人工确认快照无效，请重新确认候选帧");
+    const resolvedDuration = durationMs ?? Math.max(...(review.frames || []).map((frame) => (Number.isFinite(frame?.timeMs) ? frame.timeMs + 1 : 0)), 1);
+    validateFrames(review.frames, resolvedDuration);
 }
 
 export function validateVideoReviewDraft(draft: VideoReviewDraft) {
@@ -119,6 +140,54 @@ export function transcriptForRange(transcript: VideoTranscript | undefined, star
     return transcript?.segments.filter((segment) => segment.startMs < endMs && segment.endMs > startMs) ?? [];
 }
 
+/** Whitelists immutable detector output before it reaches a confirmation or persisted draft. */
+export function portableReviewFrame(frame: ReviewFrame): ReviewFrame {
+    return {
+        id: frame.id,
+        timeMs: frame.timeMs,
+        eventTimeMs: frame.eventTimeMs,
+        quality: frame.quality,
+        qualityMethod: frame.qualityMethod,
+        qualityAdjusted: frame.qualityAdjusted,
+        score: frame.score,
+        scoreBreakdown: frame.scoreBreakdown ? portableScoreBreakdown(frame.scoreBreakdown) : undefined,
+        confidence: frame.confidence,
+        motionDirection: frame.motionDirection,
+        semanticSignals: frame.semanticSignals?.map((signal) => ({
+            kind: signal.kind,
+            score: signal.score,
+            reason: signal.reason,
+            detector: signal.detector,
+            evidence: signal.evidence,
+        })),
+        reasons: [...frame.reasons],
+        hardTrigger: frame.hardTrigger,
+        width: frame.width,
+        height: frame.height,
+        shotId: frame.shotId,
+    };
+}
+
+function portableScoreBreakdown(score: NonNullable<VideoAnalysisKeyframe["scoreBreakdown"]>) {
+    return {
+        adjacentDifference: score.adjacentDifference,
+        retainedDifference: score.retainedDifference,
+        visualChange: score.visualChange,
+        corroboration: score.corroboration,
+        composite: score.composite,
+        sceneCut: score.sceneCut,
+        transition: score.transition,
+        exposureChange: score.exposureChange,
+        motion: score.motion,
+        ...(score.semantic ? { semantic: { ...score.semantic } } : {}),
+    };
+}
+
+function sameReviewFrame(left: ReviewFrame, right: ReviewFrame | undefined) {
+    if (!right) return false;
+    return JSON.stringify(portableReviewFrame(left)) === JSON.stringify(portableReviewFrame(right));
+}
+
 function validateFrames(frames: readonly ReviewFrame[], durationMs: number) {
     if (!Array.isArray(frames) || !frames.length || !Number.isFinite(durationMs) || durationMs <= 0) fail("候选帧数据无效");
     const ids = new Set<string>();
@@ -137,6 +206,10 @@ function validateFrames(frames: readonly ReviewFrame[], durationMs: number) {
             !Number.isFinite(frame.score) ||
             frame.score < 0 ||
             frame.score > 1 ||
+            (frame.confidence !== undefined && (!Number.isFinite(frame.confidence) || frame.confidence < 0 || frame.confidence > 1)) ||
+            (frame.motionDirection !== undefined && !["left", "right", "up", "down", "static"].includes(frame.motionDirection)) ||
+            (frame.semanticSignals !== undefined && !validSemanticSignals(frame.semanticSignals)) ||
+            (frame.scoreBreakdown !== undefined && !validScoreBreakdown(frame.scoreBreakdown)) ||
             (frame.quality !== undefined && (!Number.isFinite(frame.quality) || frame.quality < 0 || frame.quality > 1)) ||
             (frame.eventTimeMs !== undefined && (!Number.isInteger(frame.eventTimeMs) || frame.eventTimeMs < 0 || frame.eventTimeMs >= durationMs))
         )
@@ -144,6 +217,21 @@ function validateFrames(frames: readonly ReviewFrame[], durationMs: number) {
         ids.add(frame.id);
         times.add(frame.timeMs);
     }
+}
+
+function validScoreBreakdown(value: NonNullable<VideoAnalysisKeyframe["scoreBreakdown"]>) {
+    const required = [value.adjacentDifference, value.retainedDifference, value.visualChange, value.corroboration, value.composite];
+    const optional = [value.sceneCut, value.transition, value.exposureChange, value.motion].filter((part) => part !== undefined);
+    const semantic = value.semantic ? Object.values(value.semantic) : [];
+    return [...required, ...optional, ...semantic].every((part) => Number.isFinite(part) && part >= 0 && part <= 1);
+}
+
+function validSemanticSignals(signals: NonNullable<VideoAnalysisKeyframe["semanticSignals"]>) {
+    return signals.length > 0 && signals.every((signal) => Boolean(signal)
+        && typeof signal.detector === "string" && signal.detector.trim().length > 0
+        && Number.isFinite(signal.score) && signal.score >= 0 && signal.score <= 1
+        && typeof signal.kind === "string" && typeof signal.reason === "string"
+        && (signal.evidence === undefined || typeof signal.evidence === "string"));
 }
 
 function fail(message: string): never {

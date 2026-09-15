@@ -8,7 +8,8 @@ import { getNodeSpec } from "@/constant/canvas";
 import { batchSourceRestriction, buildBatchConnectionCreateRequest, hasBatchConnectionCandidate, planBatchConnections, type CanvasBatchConnectionPreview } from "@/lib/canvas/canvas-batch-connection";
 import { connectedNodeCenterFromEdgeDrop } from "@/lib/canvas/canvas-connected-node-placement";
 import { canvasConnectionError } from "@/lib/canvas/canvas-connection-policy";
-import { attachNodeToStoryboardRow, createCanvasNode, getConnectionTargetAnchor, isHiddenBatchChild, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
+import { applyFrameScriptVideoPrompt, attachNodeToStoryboardRow, createCanvasNode, frameScriptStoryboardFrameForNode, frameScriptStoryboardFrameFromHandle, getConnectionTargetAnchor, isHiddenBatchChild, normalizeConnection, storyboardHandleAtY, storyboardPromptTemplateMetadata, storyboardRowFromHandle } from "@/lib/canvas/canvas-project-domain";
+import { frameScriptFinalContent, frameScriptGenerationMetadata } from "@/lib/framescript-video-review/storyboard-content";
 import { createCanvasDrawingFromImage } from "@/lib/canvas/canvas-drawing-storage";
 import { isDrawingEngineAvailable, type CanvasDrawingEngine } from "@/lib/canvas/canvas-drawing-engine";
 import { isFrameNode, isNodeHiddenByCollapsedFrame } from "@/lib/canvas/canvas-frame";
@@ -220,9 +221,10 @@ export function useCanvasConnectionController({
         const exists = connectionsRef.current.find((item) => item.fromNodeId === fromNodeId && item.toNodeId === toNodeId && item.fromHandleId === fromHandleId && item.toHandleId === toHandleId);
         if (exists) {
             setConnections((currentConnections) => currentConnections.map((item) => item.id === exists.id ? { ...item, fromAnchorRatio, toAnchorRatio } : item));
+            setNodes((currentNodes) => applyFrameScriptVideoPrompt(attachNodeToStoryboardRow(currentNodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }), fromNodeId, toNodeId));
         } else {
             setConnections((currentConnections) => [...currentConnections, { id: `conn-${Date.now()}`, fromNodeId, toNodeId, fromHandleId, toHandleId, fromAnchorRatio, toAnchorRatio }]);
-            setNodes((currentNodes) => attachNodeToStoryboardRow(currentNodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }));
+            setNodes((currentNodes) => applyFrameScriptVideoPrompt(attachNodeToStoryboardRow(currentNodes, { fromNodeId, toNodeId, fromHandleId, toHandleId }), fromNodeId, toNodeId));
         }
         setContextMenu(null);
     }, [config, connectionsRef, message, nodesRef, setConnections, setContextMenu, setNodes]);
@@ -239,9 +241,16 @@ export function useCanvasConnectionController({
         const batchSourceNodes = batchSourceNodeIds
             .map((nodeId) => nodesRef.current.find((node) => node.id === nodeId))
             .filter((node): node is CanvasNodeData => Boolean(node));
+        const connectionNode = nodesRef.current.find((node) => node.id === pending.connection.nodeId);
+        const sourceNode = pending.connection.handleType === "source" ? connectionNode : undefined;
         const storyboardRow = batchSourceNodeIds.length ? undefined : nodeType === CanvasNodeType.Video ? storyboardRowFromHandle(nodesRef.current, pending.connection.nodeId, pending.connection.handleId) : undefined;
+        const frameScriptFrame = batchSourceNodeIds.length || nodeType !== CanvasNodeType.Video
+            ? undefined
+            : frameScriptStoryboardFrameFromHandle(nodesRef.current, pending.connection.nodeId, pending.connection.handleId)
+                || frameScriptStoryboardFrameForNode(nodesRef.current, sourceNode || connectionNode);
+        const frameScriptVideoPrompt = frameScriptFrame ? frameScriptFinalContent(frameScriptFrame).videoMotionPrompt.trim() : "";
+        const frameScriptVideoMetadata = frameScriptFrame ? frameScriptGenerationMetadata(frameScriptFrame, "video", connectionNode?.metadata?.frameScriptStoryboardNodeId || pending.connection.nodeId) : undefined;
         const videoPrompt = storyboardRow ? (storyboardRow.videoMotionPrompt || storyboardRow.plotDescription).trim() : "";
-        const sourceNode = pending.connection.handleType === "source" ? nodesRef.current.find((node) => node.id === pending.connection.nodeId) : undefined;
         const batchScriptPrompt = batchSourceNodes
             .filter((node) => node.type === CanvasNodeType.Text)
             .map((node) => (node.metadata?.content || node.metadata?.prompt || "").trim())
@@ -277,6 +286,8 @@ export function useCanvasConnectionController({
               ? { prompt: scriptPrompt, composerContent: scriptPrompt }
             : nodeType === CanvasNodeType.Video && storyboardRow
               ? { prompt: videoPrompt, composerContent: videoPrompt, ...storyboardPromptTemplateMetadata(storyboardRow, "video"), generationMode: "video" as const, videoEditOperation: "text_to_video" as const, workflowKind: "shot" as const, workflowTitle: `镜头 ${storyboardRow.shotNumber} 视频`, shotIndex: storyboardRow.shotNumber, seconds: String(storyboardRow.durationSeconds), status: NODE_STATUS_IDLE }
+              : nodeType === CanvasNodeType.Video && frameScriptFrame && frameScriptVideoMetadata
+                ? { ...frameScriptVideoMetadata, status: NODE_STATUS_IDLE }
               : undefined;
         const sourceNodeForQuickCreate = pending.quick ? nodesRef.current.find((node) => node.id === pending.connection.nodeId) : undefined;
         const spec = getNodeSpec(nodeType);
@@ -294,6 +305,7 @@ export function useCanvasConnectionController({
         const newNode = createCanvasNode(nodeType, position, metadata);
         if (nodeType === CanvasNodeType.Config && selectedWorkflowProvider) newNode.title = "RunningHub 工作流";
         if (storyboardRow) newNode.title = `镜头 ${storyboardRow.shotNumber} · 视频`;
+        else if (frameScriptFrame) newNode.title = `镜头 ${frameScriptFrame.index} · 视频`;
         if (batchSourceNodeIds.length && nodeType === CanvasNodeType.Drawing) {
             message.error("批量连接暂不支持创建绘图，请先连接到普通节点");
             closeConnectionCreateMenu();
@@ -420,6 +432,44 @@ export function useCanvasConnectionController({
         let bestHandleId: string | undefined;
         let bestAnchorRatio: number | undefined;
         let bestPriority = Number.POSITIVE_INFINITY;
+
+        // FrameScript exposes one real DOM handle per storyboard row. Resolve
+        // those handles from their rendered bounds first so a drop near the
+        // enlarged hit area snaps to the exact row instead of the node center.
+        if (typeof document !== "undefined") {
+            const expectedSide = current.handleType === "source" ? "left" : "right";
+            const rowHandles = Array.from(document.querySelectorAll<HTMLElement>(`[data-canvas-row-handle="true"][data-canvas-handle-side="${expectedSide}"]`));
+            let closest: { element: HTMLElement; distance: number } | undefined;
+            rowHandles.forEach((element) => {
+                const rect = element.getBoundingClientRect();
+                const dx = clientX < rect.left ? rect.left - clientX : clientX > rect.right ? clientX - rect.right : 0;
+                const dy = clientY < rect.top ? rect.top - clientY : clientY > rect.bottom ? clientY - rect.bottom : 0;
+                const distance = Math.hypot(dx, dy);
+                if (!closest || distance < closest.distance) closest = { element, distance };
+            });
+            if (closest && closest.distance <= Math.max(36, handleRadius * scale)) {
+                const element = closest.element;
+                const nodeId = element.dataset.canvasNodeId;
+                const targetNode = nodeId ? nodesRef.current.find((node) => node.id === nodeId) : undefined;
+                const targetHandleId = element.dataset.canvasHandleId;
+                if (targetNode && targetHandleId) {
+                    const normalized = targetNode.id === current.nodeId ? null : normalizeConnection(current.nodeId, targetNode.id, nodesRef.current, current.handleType);
+                    if (normalized && !canvasConnectionError(config, nodesRef.current, connectionsRef.current, normalized)) {
+                        const shell = element.closest<HTMLElement>(".canvas-node-shell");
+                        const bounds = shell?.getBoundingClientRect();
+                        const elementBounds = element.getBoundingClientRect();
+                        const anchorRatio = bounds && bounds.height > 0
+                            ? Math.min(1, Math.max(0, (elementBounds.top + elementBounds.height / 2 - bounds.top) / bounds.height))
+                            : undefined;
+                        bestNodeId = targetNode.id;
+                        bestHandleId = targetHandleId;
+                        bestAnchorRatio = anchorRatio;
+                        bestPriority = 0;
+                        isNearNode = true;
+                    }
+                }
+            }
+        }
 
         [...nodesRef.current]
             .filter((node) => !isHiddenBatchChild(node, nodesRef.current) && !isNodeHiddenByCollapsedFrame(node, nodesRef.current) && !isFrameNode(node))

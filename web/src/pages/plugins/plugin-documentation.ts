@@ -9,6 +9,7 @@ const permissionLabels: Record<string, string> = {
     "asset.upload": "上传素材",
     "generation.run": "调用生成",
     "ai.text": "调用已配置的文本/视觉理解模型",
+    "ai.audio": "调用已配置的语音转写模型",
     "media.read": "读取输入媒体",
     "external.open": "打开外部详情",
 };

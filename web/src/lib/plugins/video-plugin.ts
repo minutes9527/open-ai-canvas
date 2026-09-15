@@ -1,5 +1,5 @@
 import type { VideoIR, VideoResourceRef } from "@/lib/video-engine/video-ir";
-import type { ConfirmedVideoReview } from "./video-review";
+import type { ConfirmedVideoReview, VideoReviewDraft } from "./video-review";
 
 export const VIDEO_ANALYSIS_OPERATIONS = ["adaptive-keyframe-extraction", "video-analysis", "transcription", "prompt-extraction", "scene-understanding", "asset-analysis"] as const;
 export type VideoAnalysisOperation = (typeof VIDEO_ANALYSIS_OPERATIONS)[number];
@@ -37,6 +37,8 @@ export type VideoInput = {
     operations: readonly VideoAnalysisOperation[];
     /** Only explicit, current user confirmations may reach a visual model. */
     review?: ConfirmedVideoReview;
+    /** Candidate snapshot that produced the confirmation; required by FrameScript visual analysis. */
+    reviewDraft?: VideoReviewDraft;
 };
 export type VideoKeyframeReason =
     | "manual"
@@ -51,12 +53,36 @@ export type VideoKeyframeReason =
     | "visual-change"
     | "semantic-change"
     | "person-movement"
+    | "motion-change"
     | "person-scale-change"
     | "pose-change"
     | "camera-movement"
     | "text-change"
     | "expression-change"
     | "max-gap";
+export type VideoSemanticSignalKind =
+    | "subject-entry"
+    | "subject-exit"
+    | "subject-movement"
+    | "product-interaction"
+    | "occlusion-change"
+    | "pose-change"
+    | "scale-change"
+    | "camera-movement"
+    | "text-change"
+    | "expression-change";
+/**
+ * Optional semantic evidence supplied by a real detector. The baseline
+ * browser scanner never creates these records, so an absent signal remains
+ * distinguishable from a detector that ran and found no change.
+ */
+export type VideoSemanticSignal = {
+    kind: VideoSemanticSignalKind;
+    score: number;
+    reason: Extract<VideoKeyframeReason, "subject-entered" | "subject-reentered" | "product-interaction" | "occlusion-changed" | "person-movement" | "pose-change" | "camera-movement" | "text-change" | "expression-change" | "person-scale-change" | "semantic-change">;
+    detector: string;
+    evidence?: string;
+};
 export type VideoAnalysisKeyframe = {
     timeMs: number;
     eventTimeMs?: number;
@@ -64,10 +90,29 @@ export type VideoAnalysisKeyframe = {
     qualityMethod?: "local-laplacian-exposure-v1";
     qualityAdjusted?: boolean;
     score: number;
+    scoreBreakdown?: VideoFrameScoreBreakdown;
+    confidence?: number;
+    /** Direction is a local frame-to-frame cue, not a claim about camera motion. */
+    motionDirection?: "left" | "right" | "up" | "down" | "static";
+    semanticSignals?: readonly VideoSemanticSignal[];
     reasons: readonly VideoKeyframeReason[];
     hardTrigger: boolean;
     width?: number;
     height?: number;
+};
+export type VideoFrameScoreBreakdown = {
+    adjacentDifference: number;
+    retainedDifference: number;
+    visualChange: number;
+    corroboration: number;
+    composite: number;
+    /** Optional signals are present only when the corresponding detector ran. */
+    sceneCut?: number;
+    transition?: number;
+    exposureChange?: number;
+    motion?: number;
+    /** Semantic detector scores keyed by detector kind; only present when a detector ran. */
+    semantic?: Readonly<Record<string, number>>;
 };
 export type VideoTranscriptSegment = { startMs: number; endMs: number; speaker?: string; originalText: string; cleanedText?: string; confidence?: number; shotIds?: readonly string[] };
 export type VideoTranscript = { text: string; segments: readonly VideoTranscriptSegment[] };
@@ -80,6 +125,8 @@ export type AnalysisResult = {
         transcript?: string;
         prompt?: string;
         description?: string;
+        /** On-screen captions/text kept separate from the visual prompt. */
+        screenText?: string;
         /** References only; binary media remains in the resource store. */
         assets?: readonly VideoResourceRef[];
         keyframe?: VideoAnalysisKeyframe;

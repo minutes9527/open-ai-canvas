@@ -9,6 +9,7 @@ type CanvasNodeAssetOptions = {
     canvasId: string;
     source: CanvasAssetSource;
     taskId?: string;
+    folderId?: string;
 };
 
 export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAssetOptions): NewAsset | null {
@@ -34,6 +35,7 @@ export function canvasNodeToAsset(node: CanvasNodeData, options: CanvasNodeAsset
         title,
         coverUrl: node.type === CanvasNodeType.Image ? content : node.type === CanvasNodeType.Video ? canvasNodeVideoPreviewUrl(node) : "",
         tags: node.metadata?.assetTags || [],
+        ...(options.folderId ? { folderId: options.folderId } : {}),
         category: canvasNodeAssetCategory(node),
         status: "confirmed" as const,
         source: "Canvas",
