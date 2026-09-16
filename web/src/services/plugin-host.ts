@@ -70,14 +70,29 @@ export function createPluginHostContext(plugin: RegisteredPlugin, installation: 
                     transcribe: async (request) => {
                         if (!permissions.has("ai.audio")) throw new Error("插件没有调用语音转写模型的权限");
                         const requestConfig = resolvePluginModelConfig(request.model || String(installation.config.transcriptionModel || ""));
-                        const form = new FormData();
-                        form.append("file", request.file, request.fileName);
-                        form.append("model", modelOptionName(requestConfig.model));
+                        const model = modelOptionName(requestConfig.model);
                         const headers = {
                             Authorization: `Bearer ${requestConfig.apiKey}`,
                             ...(isSystemProxyBaseUrl(requestConfig.baseUrl) ? { "X-Canvas-Scene": "audio", "X-Idempotency-Key": createClientId() } : {}),
                         };
                         try {
+                            if (isQwenAsrModel(model)) {
+                                const upstreamUrl = buildApiUrl(requestConfig.baseUrl, "/chat/completions");
+                                const relay = channelRequest(requestConfig, upstreamUrl, headers);
+                                const response = await axios.post<unknown>(relay.url, {
+                                    model,
+                                    messages: [{ role: "user", content: [{ type: "input_audio", input_audio: { data: await blobToDataUrl(request.file) } }] }],
+                                    stream: false,
+                                }, {
+                                    headers: { ...relay.headers, "Content-Type": "application/json" },
+                                    withCredentials: relay.credentials === "include",
+                                    signal: request.signal,
+                                });
+                                return parseQwenAsrChatResponse(response.data);
+                            }
+                            const form = new FormData();
+                            form.append("file", request.file, request.fileName);
+                            form.append("model", model);
                             const upstreamUrl = buildApiUrl(requestConfig.baseUrl, "/audio/transcriptions");
                             const relay = channelRequest(requestConfig, upstreamUrl, headers);
                             const response = await axios.post<unknown>(relay.url, form, {
@@ -161,6 +176,28 @@ function mediaFileName(value: string, mimeType: string) {
     return `${safe}${extension || ""}`;
 }
 
+
+function isQwenAsrModel(model: string) {
+    return /^qwen3-asr-flash(?:-|$)/i.test(model.trim());
+}
+
+async function blobToDataUrl(blob: Blob) {
+    const bytes = new Uint8Array(await blob.arrayBuffer());
+    const chunkSize = 0x8000;
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += chunkSize) binary += String.fromCharCode(...bytes.subarray(offset, offset + chunkSize));
+    return `data:${blob.type || "audio/mpeg"};base64,${btoa(binary)}`;
+}
+
+function parseQwenAsrChatResponse(payload: unknown) {
+    const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+    const choices = Array.isArray(data.choices) ? data.choices : [];
+    const first = choices[0] && typeof choices[0] === "object" && !Array.isArray(choices[0]) ? choices[0] as Record<string, unknown> : {};
+    const message = first.message && typeof first.message === "object" && !Array.isArray(first.message) ? first.message as Record<string, unknown> : {};
+    const content = typeof message.content === "string" ? message.content.trim() : "";
+    if (!content) throw new Error("百炼 Qwen ASR 未返回有效的转写文本");
+    return { text: content };
+}
 
 export function parseAudioTranscriptionResponse(payload: unknown) {
     const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
