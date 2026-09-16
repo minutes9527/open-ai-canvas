@@ -134,7 +134,20 @@ export default function PluginsPage() {
     const remotePlugins = useMemo(() => backendPlugins.map(toRegisteredPlugin), [backendPlugins]);
     const registeredPlugins = useMemo(() => {
         const byId = new Map(builtinPlugins.map((plugin) => [plugin.manifest.id, plugin]));
-        for (const plugin of remotePlugins) byId.set(plugin.manifest.id, plugin);
+        for (const plugin of remotePlugins) {
+            const builtin = byId.get(plugin.manifest.id);
+            // Older server-side FrameScript packages did not include the
+            // configuration contract. Keep the bundled fields in that one
+            // compatibility case so users can repair the channel binding
+            // instead of receiving an empty settings dialog. A server manifest
+            // that does declare fields remains authoritative.
+            const missingFrameScriptConfiguration = plugin.manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID
+                && !plugin.manifest.configuration?.fields?.length
+                && Boolean(builtin?.manifest.configuration?.fields?.length);
+            byId.set(plugin.manifest.id, missingFrameScriptConfiguration
+                ? { ...plugin, manifest: { ...plugin.manifest, configuration: builtin!.manifest.configuration } }
+                : plugin);
+        }
         return [...byId.values()];
     }, [builtinPlugins, remotePlugins]);
     const backendPluginById = useMemo(() => new Map(backendPlugins.map((plugin) => [plugin.manifest.id, plugin])), [backendPlugins]);
