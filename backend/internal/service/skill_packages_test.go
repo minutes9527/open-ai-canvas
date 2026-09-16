@@ -130,7 +130,7 @@ func TestEnsureSkillPackagesMigratesAndRefreshesBuiltinSkills(t *testing.T) {
 }
 
 func TestEnsureSkillPackagesRebuildsMissingBuiltinArchive(t *testing.T) {
-	db, err := gorm.Open(sqlite.Open("file:"+kernel.NewID()+"?mode=memory&cache=shared"), &gorm.Config{})
+	db, err := gorm.Open(sqlite.Open("file:"+newID()+"?mode=memory&cache=shared"), &gorm.Config{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,8 +138,8 @@ func TestEnsureSkillPackagesRebuildsMissingBuiltinArchive(t *testing.T) {
 		t.Fatal(err)
 	}
 	dataDir := t.TempDir()
-	svc := New(repository.New(db), dataDir, nil)
-	builtin := model.Skill{ID: kernel.NewID(), Name: "内置导演", Description: "内置工作流", Instruction: "# 内置导演\n\n第一版", Status: skillStatusEnabled, Source: 3}
+	svc := New(repository.New(db), dataDir)
+	builtin := model.Skill{ID: newID(), Name: "内置导演", Description: "内置工作流", Instruction: "# 内置导演\n\n第一版", Status: skillStatusEnabled, Source: 3}
 	if err := db.Create(&builtin).Error; err != nil {
 		t.Fatal(err)
 	}
