@@ -773,8 +773,6 @@ export function modelDisplayName(config: AiConfig, value: string) {
     const channel = resolveModelChannel(config, value);
     const displayName = channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim();
     if (displayName) return displayName;
-    const localDisplayName = configuredLocalModelDisplayName(channel, model);
-    if (localDisplayName) return localDisplayName;
     return channel.scope === "system" ? "系统模型" : model;
 }
 
@@ -782,12 +780,6 @@ export function modelIcon(config: AiConfig, value: string) {
     const model = modelOptionName(value);
     const channel = resolveModelChannel(config, value);
     return channel.modelCosts?.find((item) => item.model === model)?.icon || (channel.id === "local:dreamina-cli" ? "Jimeng" : "");
-}
-
-export function configuredLocalModelDisplayName(channel: ModelChannel, model: string) {
-    const displayName = channel.localModels?.find((item) => item.id === model)?.displayName?.trim();
-    if (!displayName) return "";
-    return channel.id === "local:dreamina-cli" ? `即梦 ${displayName}` : displayName;
 }
 
 export function modelOptionLabel(config: AiConfig, value: string) {

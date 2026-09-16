@@ -1,6 +1,6 @@
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
-import { configuredLocalModelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
+import { modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { imageSizePresets } from "@/lib/image-size-presets";
 
 export type ModelInputSummary = {
@@ -48,7 +48,7 @@ export function groupModelsByDisplayName(config: AiConfig, models: string[]): Di
 export function configuredModelDisplayName(config: AiConfig, value: string) {
     const model = modelOptionName(value);
     const channel = resolveModelChannel(config, value);
-    return channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim() || configuredLocalModelDisplayName(channel, model) || model;
+    return channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim() || model;
 }
 
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {
