@@ -1,9 +1,13 @@
+import axios from "axios";
+
+import { createClientId } from "@/lib/client-id";
+import { channelRequest } from "@/services/api/custom-channel-relay";
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ToolChoice } from "@/services/api/image";
 import { pluginStorageFor } from "@/lib/plugins/plugin-storage";
 import { getMediaBlob } from "@/services/file-storage";
 import { getResource, resourceStorageKey } from "@/services/api/resources";
 import { loadAssetsForUse } from "@/services/user-data-sync";
-import { buildApiUrl, encodeChannelModel, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
+import { buildApiUrl, encodeChannelModel, isSystemProxyBaseUrl, modelOptionName, resolveModelRequestConfig, type AiConfig } from "@/stores/use-config-store";
 import { useAssetStore, type Asset } from "@/stores/use-asset-store";
 import type { PluginHostContext, PluginInstallation, PluginMediaReference, PluginTextRequest, RegisteredPlugin, ResolvedPluginMedia } from "@/lib/plugins/plugin-types";
 
@@ -63,8 +67,28 @@ export function createPluginHostContext(plugin: RegisteredPlugin, installation: 
                     },
                 },
                 audio: {
-                    transcribe: async () => {
-                        throw new Error("当前主线尚未提供系统渠道语音转写传输层，请先选择支持文本/视觉的 FrameScript 工作流。");
+                    transcribe: async (request) => {
+                        if (!permissions.has("ai.audio")) throw new Error("插件没有调用语音转写模型的权限");
+                        const requestConfig = resolvePluginModelConfig(request.model || String(installation.config.transcriptionModel || ""));
+                        const form = new FormData();
+                        form.append("file", request.file, request.fileName);
+                        form.append("model", modelOptionName(requestConfig.model));
+                        const headers = {
+                            Authorization: `Bearer ${requestConfig.apiKey}`,
+                            ...(isSystemProxyBaseUrl(requestConfig.baseUrl) ? { "X-Canvas-Scene": "audio", "X-Idempotency-Key": createClientId() } : {}),
+                        };
+                        try {
+                            const upstreamUrl = buildApiUrl(requestConfig.baseUrl, "/audio/transcriptions");
+                            const relay = channelRequest(requestConfig, upstreamUrl, headers);
+                            const response = await axios.post<unknown>(relay.url, form, {
+                                headers: relay.headers,
+                                withCredentials: relay.credentials === "include",
+                                signal: request.signal,
+                            });
+                            return parseAudioTranscriptionResponse(response.data);
+                        } catch (error) {
+                            throw new Error(`系统渠道语音转写失败：${audioTranscriptionError(error)}`);
+                        }
                     },
                 },
             },
@@ -135,4 +159,37 @@ function mediaFileName(value: string, mimeType: string) {
     if (/\.[a-z0-9]{2,5}$/i.test(safe)) return safe;
     const extension = ({ "video/mp4": ".mp4", "video/quicktime": ".mov", "audio/mpeg": ".mp3", "audio/wav": ".wav", "image/png": ".png", "image/jpeg": ".jpg" } as Record<string, string>)[mimeType];
     return `${safe}${extension || ""}`;
+}
+
+
+export function parseAudioTranscriptionResponse(payload: unknown) {
+    const data = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : {};
+    const text = [data.text, data.transcript, data.content].find((value): value is string => typeof value === "string" && value.trim().length > 0)?.trim() || "";
+    if (!text) throw new Error("系统渠道未返回有效的转写文本");
+    const segments = Array.isArray(data.segments)
+        ? data.segments.flatMap((value) => {
+            if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+            const item = value as Record<string, unknown>;
+            const segmentText = [item.text, item.original_text, item.content].find((candidate): candidate is string => typeof candidate === "string" && candidate.trim().length > 0)?.trim();
+            if (!segmentText) return [];
+            const startMs = timeToMs(item.start_ms ?? item.start, 0);
+            const endMs = Math.max(startMs, timeToMs(item.end_ms ?? item.end, startMs));
+            return [{ startMs, endMs, text: segmentText }];
+        })
+        : undefined;
+    return { text, ...(segments?.length ? { segments } : {}) };
+}
+
+function audioTranscriptionError(error: unknown) {
+    if (axios.isAxiosError(error)) {
+        const body = error.response?.data;
+        if (body && typeof body === "object" && !Array.isArray(body)) {
+            const record = body as Record<string, unknown>;
+            const nested = record.error && typeof record.error === "object" && !Array.isArray(record.error) ? record.error as Record<string, unknown> : undefined;
+            const message = nested?.message ?? record.message ?? record.error;
+            if (typeof message === "string" && message.trim()) return message.trim();
+        }
+        if (error.message) return error.message;
+    }
+    return error instanceof Error && error.message ? error.message : "请求未完成";
 }
