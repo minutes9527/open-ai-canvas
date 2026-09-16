@@ -36,7 +36,7 @@ var (
 	systemMiniMaxTaskPath      = regexp.MustCompile(`^/v2/query/video_generation/[^/]+$`)
 	openAIPostEndpoints        = map[string]bool{
 		"/responses": true, "/chat/completions": true, "/images/generations": true, "/images/edits": true,
-		"/audio/speech": true, "/messages": true,
+		"/audio/speech": true, "/audio/transcriptions": true, "/messages": true,
 	}
 )
 
@@ -247,7 +247,7 @@ func interfaceAllowsProxyPath(interfaceType model.ChannelInterfaceType, requestP
 	case model.ChannelInterfaceVolcengineArkImage:
 		return requestPath == "/images/generations"
 	case model.ChannelInterfaceOpenAIAudio:
-		return requestPath == "/audio/speech"
+		return requestPath == "/audio/speech" || requestPath == "/audio/transcriptions"
 	case model.ChannelInterfaceAsyncAudio, model.ChannelInterfaceNewAPIVideo, model.ChannelInterfaceNewAPIChannel1, model.ChannelInterfaceNewAPIChannel2, model.ChannelInterfaceXAIVideo, model.ChannelInterfaceVolcengineArkVideo, model.ChannelInterfaceVolcengineJiMengImage, model.ChannelInterfaceVolcengineJiMengVideo, model.ChannelInterfaceGeminiVeo, model.ChannelInterfaceGeminiImage, model.ChannelInterfaceNovitaVideo, model.ChannelInterfaceMiniMaxVideo:
 		return false
 	default:

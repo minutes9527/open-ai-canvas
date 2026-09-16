@@ -8,6 +8,8 @@ import { isFrameNode } from "@/lib/canvas/canvas-frame";
 import { nodeSizeFromRatio } from "@/lib/canvas/canvas-node-size";
 import { canvasNodeMentionToken, canvasResourceMentionToken, type CanvasResourceReference } from "@/lib/canvas/canvas-resource-references";
 import { getNodeDefinition } from "@/lib/canvas/node-registry";
+import { FRAMESCRIPT_STORYBOARD_NODE_TYPE } from "@/lib/framescript-video-review/contracts";
+import { frameScriptFinalContent, frameScriptGenerationMetadata } from "@/lib/framescript-video-review/storyboard-content";
 import { scopedLocalStorage } from "@/lib/user-scope";
 import type { GenerationTask } from "@/services/api/task-center";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type CanvasNodeMetadata, type CanvasNodeTypeId, type CanvasWorkspaceMode, type ConnectionHandle, type Position, type StoryboardColumn, type StoryboardRow } from "@/types/canvas";
@@ -235,9 +237,44 @@ export function attachNodeToStoryboardRow(nodes: CanvasNodeData[], connection: P
     const rowId = handleId?.startsWith("row:") ? handleId.slice(4) : null;
     const linkedNodeId = scriptNodeId === connection.fromNodeId ? connection.toNodeId : connection.fromNodeId;
     const linkedNode = nodes.find((node) => node.id === linkedNodeId);
-    const scriptNode = nodes.find((node) => node.id === scriptNodeId && node.type === CanvasNodeType.Script);
+    const scriptNode = nodes.find((node) => node.id === scriptNodeId && (node.type === CanvasNodeType.Script || node.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE));
     if (!scriptNodeId || !linkedNode || !scriptNode) return nodes;
     const row = rowId ? scriptNode.metadata?.storyboard?.rows.find((item) => item.id === rowId) : undefined;
+    if (scriptNode.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE) {
+        const storyboard = scriptNode.metadata?.frameScriptStoryboard;
+        if (!storyboard) return nodes;
+        const frame = rowId ? storyboard.frames.find((item) => item.id === rowId) : undefined;
+        if (linkedNode.type === CanvasNodeType.Video && frame) {
+            const videoPrompt = frameScriptFinalContent(frame).videoMotionPrompt.trim();
+            const existingPrompt = (linkedNode.metadata?.composerContent || linkedNode.metadata?.prompt || "").trim();
+            const previousAutoPrompt = (linkedNode.metadata?.frameScriptStoryboardVideoPrompt || "").trim();
+            const manuallyEdited = Boolean(existingPrompt && (!previousAutoPrompt || existingPrompt !== previousAutoPrompt));
+            if (manuallyEdited) return nodes;
+            return nodes.map((node) => node.id !== linkedNode.id ? node : {
+                ...node,
+                title: `镜头 ${frame.index} · 视频`,
+                metadata: {
+                    ...node.metadata,
+                    ...frameScriptGenerationMetadata(frame, "video", scriptNode.id),
+                    videoEditOperation: node.metadata?.videoEditOperation || "image_to_video",
+                },
+            });
+        }
+        const isReference = linkedNode.type === CanvasNodeType.Image || linkedNode.type === CanvasNodeType.Drawing || linkedNode.metadata?.workflowKind === "character";
+        if (!isReference) return nodes;
+        return nodes.map((node) => node.id !== scriptNode.id ? node : {
+            ...node,
+            metadata: {
+                ...node.metadata,
+                frameScriptStoryboard: {
+                    ...storyboard,
+                    referenceNodeIds: rowId ? storyboard.referenceNodeIds : Array.from(new Set([...(storyboard.referenceNodeIds || []), linkedNode.id])),
+                    frames: storyboard.frames.map((frame) => frame.id !== rowId ? frame : { ...frame, referenceNodeId: linkedNode.id, referenceNodeIds: [linkedNode.id] }),
+                    updatedAt: new Date().toISOString(),
+                },
+            },
+        });
+    }
     const videoPrompt = row ? (row.videoMotionPrompt || row.plotDescription).trim() : "";
     const videoComposerContent = row ? storyboardComposerContent(videoPrompt, storyboardRowReferenceNodeIds(scriptNode, row, nodes, [], false), nodes) : "";
 
@@ -269,6 +306,46 @@ export function attachNodeToStoryboardRow(nodes: CanvasNodeData[], connection: P
 export function storyboardRowFromHandle(nodes: CanvasNodeData[], nodeId: string, handleId?: string) {
     if (!handleId?.startsWith("row:")) return undefined;
     return nodes.find((node) => node.id === nodeId && node.type === CanvasNodeType.Script)?.metadata?.storyboard?.rows.find((row) => `row:${row.id}` === handleId);
+}
+
+/** Resolve the current FrameScript replica row from a row connection handle. */
+export function frameScriptStoryboardFrameFromHandle(nodes: CanvasNodeData[], nodeId: string, handleId?: string) {
+    if (!handleId?.startsWith("row:")) return undefined;
+    const frameId = handleId.slice(4);
+    return nodes.find((node) => node.id === nodeId && node.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE)?.metadata?.frameScriptStoryboard?.frames.find((frame) => frame.id === frameId);
+}
+
+/** Resolve a FrameScript replica row through the generated shot-image binding. */
+export function frameScriptStoryboardFrameForNode(nodes: CanvasNodeData[], node: CanvasNodeData | undefined) {
+    const storyboardNodeId = node?.metadata?.frameScriptStoryboardNodeId;
+    const frameId = node?.metadata?.frameScriptStoryboardFrameId;
+    if (!storyboardNodeId || !frameId) return undefined;
+    return nodes.find((item) => item.id === storyboardNodeId && item.type === FRAMESCRIPT_STORYBOARD_NODE_TYPE)?.metadata?.frameScriptStoryboard?.frames.find((frame) => frame.id === frameId);
+}
+
+/** Fill an existing video node when it is connected from a FrameScript shot image. */
+export function applyFrameScriptVideoPrompt(nodes: CanvasNodeData[], sourceNodeId: string, targetNodeId: string) {
+    const sourceNode = nodes.find((node) => node.id === sourceNodeId);
+    const targetNode = nodes.find((node) => node.id === targetNodeId && node.type === CanvasNodeType.Video);
+    const frame = frameScriptStoryboardFrameForNode(nodes, sourceNode);
+    if (!sourceNode || !targetNode || !frame) return nodes;
+    const videoPrompt = frameScriptFinalContent(frame).videoMotionPrompt.trim();
+    if (!videoPrompt) return nodes;
+    const sameFrameScriptBinding = targetNode.metadata?.frameScriptStoryboardNodeId === sourceNode.metadata?.frameScriptStoryboardNodeId
+        && targetNode.metadata?.frameScriptStoryboardFrameId === sourceNode.metadata?.frameScriptStoryboardFrameId;
+    const existingPrompt = (targetNode.metadata?.composerContent || targetNode.metadata?.prompt || "").trim();
+    const previousAutoPrompt = (targetNode.metadata?.frameScriptStoryboardVideoPrompt || "").trim();
+    const manuallyEdited = Boolean(existingPrompt && (!previousAutoPrompt || existingPrompt !== previousAutoPrompt));
+    if (manuallyEdited || (existingPrompt && !sameFrameScriptBinding)) return nodes;
+    return nodes.map((node) => node.id !== targetNode.id ? node : {
+        ...node,
+        title: `镜头 ${frame.index} · 视频`,
+        metadata: {
+            ...node.metadata,
+            ...frameScriptGenerationMetadata(frame, "video", sourceNode.metadata?.frameScriptStoryboardNodeId || "", []),
+            videoEditOperation: node.metadata?.videoEditOperation || "image_to_video",
+        },
+    });
 }
 
 export function expandStoryboardTextMentions(prompt: string, references: CanvasResourceReference[]) {

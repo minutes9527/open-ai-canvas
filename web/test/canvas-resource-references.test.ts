@@ -206,6 +206,21 @@ describe("canvas resource mention slots", () => {
         expect(buildNodeMentionReferences(image, nodes, connections)).toEqual([]);
     });
 
+    test("FrameScript 图片节点可从持久化元数据恢复原始帧参考", () => {
+        const originalFrame = imageNode("frame-1");
+        const replacement = imageNode("replacement-1");
+        const target = {
+            ...imageNode("shot-1"),
+            metadata: {
+                ...imageNode("shot-1").metadata,
+                frameScriptStoryboardReferenceNodeIds: [originalFrame.id, replacement.id],
+            },
+        };
+        const references = buildCanvasNodeMentionReferenceMap([originalFrame, replacement, target], []);
+
+        expect(references.get(target.id)?.map((reference) => reference.nodeId)).toEqual([originalFrame.id, replacement.id]);
+    });
+
     test("素材库身份 token 保持稳定", () => {
         expect(
             canvasResourceMentionToken({

@@ -68,10 +68,12 @@ export function canvasNodeDefinitionFromPlugin(pluginId: string, contribution: P
         defaultSize: contribution.defaultSize,
         defaultMetadata: { pluginId, pluginNodeId: contribution.id, pluginData: {}, content: "" },
         minSize: { width: Math.min(contribution.defaultSize.width, 220), height: Math.min(contribution.defaultSize.height, 160) },
-        showInCreateMenu: true,
+        showInCreateMenu: contribution.showInCreateMenu ?? true,
         showOutputConnection: contribution.showOutputConnection,
         acceptsInputKind: contribution.acceptsInputKind,
         maxInputCount: contribution.maxInputCount,
+        resourceKind: contribution.resourceKind ? (node) => node.metadata?.content ? contribution.resourceKind! : null : undefined,
+        inputKind: contribution.inputKind,
         plugin: { pluginId, renderer: contribution.renderer, schema: contribution.schema },
     };
 }

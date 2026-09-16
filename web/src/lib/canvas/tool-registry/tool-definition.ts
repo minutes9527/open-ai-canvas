@@ -83,6 +83,8 @@ export type ToolbarHandlers = {
     onNodeSaveAsset: (node: CanvasNodeData) => void;
     /** 从已有图片或视频创建并自动连接一个转换节点。 */
     onNodeCreateConversion?: (node: CanvasNodeData) => void;
+    /** 从视频节点创建并自动连接 FrameScript 人工复核节点。 */
+    onNodeCreateFrameScriptReview?: (node: CanvasNodeData) => void;
     onNodeMaskEdit: (node: CanvasNodeData) => void;
     onNodeEmotion: (node: CanvasNodeData) => void;
     onNodePortraitTexture: (node: CanvasNodeData) => void;

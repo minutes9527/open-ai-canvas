@@ -91,9 +91,33 @@ func TestManifestUsesOnlyUnifiedTopLevelContract(t *testing.T) {
 	if _, err := LoadManifest(canvasOnly); err != nil {
 		t.Fatalf("providerless unified plugin was rejected: %v", err)
 	}
+	canvasAdapters, err := LoadInstalledProviders(canvasOnly, nil)
+	if err != nil || len(canvasAdapters) != 1 {
+		t.Fatalf("providerless Canvas plugin adapter regression = %#v, %v", canvasAdapters, err)
+	}
 	multi := []byte(`{"apiVersion":"yingce.plugin/v1","id":"multi-provider","name":"Multi Provider","version":"1.0.0","contributes":{"providers":[{"id":"multi-text","label":"Text","capabilities":["text"],"scopes":["canvas"],"create":{"method":"POST","path":"/text"},"response":{}},{"id":"multi-image","label":"Image","capabilities":["image"],"scopes":["canvas"],"create":{"method":"POST","path":"/image"},"response":{}}]}}`)
 	adapters, err := LoadInstalledProviders(multi, nil)
 	if err != nil || len(adapters) != 2 || adapters[0].Metadata().ID != "multi-text" || adapters[1].Metadata().ID != "multi-image" {
 		t.Fatalf("multi-provider load = %#v, %v", adapters, err)
+	}
+}
+
+func TestManifestAcceptsCapabilityBasedVideoPlugin(t *testing.T) {
+	manifest := []byte(`{
+		"apiVersion":"yingce.plugin/v2","id":"framescript-video-engine","name":"FrameScript Video Engine","version":"0.4.4",
+		"permissions":["media.read"],
+		"contributes":{"videoPlugins":[{"id":"framescript-video-engine","label":"FrameScript Video Engine","type":"video","stage":"ready","capabilities":["video-analysis","transcription"],"plannedCapabilities":["compile","render"]}]}
+	}`)
+	adapters, err := LoadInstalledProviders(manifest, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(adapters) != 0 {
+		t.Fatalf("capability-only video plugin created provider adapters: %#v", adapters)
+	}
+
+	invalid := []byte(`{"apiVersion":"yingce.plugin/v1","id":"bad-video","name":"Bad Video","version":"1","contributes":{"videoPlugins":[{"id":"bad-video","label":"Bad","type":"video","stage":"ready","capabilities":["video-analysis"]}]}}`)
+	if _, err := LoadInstalledProviders(invalid, nil); err == nil {
+		t.Fatal("video plugin without media.read permission was accepted")
 	}
 }

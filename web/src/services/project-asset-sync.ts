@@ -4,6 +4,7 @@ import { readImageMeta } from "@/lib/image-utils";
 import { parseBackendGenerationResult, type BackendGenerationResult } from "@/services/api/generation-task";
 import { ApiError } from "@/services/api/request";
 import { linkProjectAsset, moveProjectAsset, updateProjectAssetCategory } from "@/services/api/projects";
+import { createAssetFolder, listAssetFolders } from "@/services/api/user-data";
 import type { GenerationTask, GenerationTaskOutput } from "@/services/api/task-center";
 import { getMediaBlob, resolveMediaUrl, setMediaBlob } from "@/services/file-storage";
 import { createGenerationTaskMaterializer, createIdempotentMaterializeOutput, type MaterializeGenerationTaskOutput } from "@/services/generation-task-materializer";
@@ -32,6 +33,7 @@ type EnsureCanvasNodeAssetOptions = {
     taskId?: string;
     category?: AssetCategory;
     folderId?: string;
+    assetFolderId?: string;
     signal?: AbortSignal;
 };
 
@@ -42,6 +44,8 @@ export type CanvasNodeAssetResult = {
 };
 
 const pendingAssetSyncs = new Map<string, Promise<CanvasNodeAssetResult>>();
+const FRAME_SCRIPT_ASSET_FOLDER_NAME = "FrameScript 分析素材";
+let frameScriptAssetFolderPromise: Promise<string | undefined> | undefined;
 const DEFAULT_RATE_LIMIT_RETRY_MS = 60_000;
 const MAX_RATE_LIMIT_RETRY_MS = 5 * 60_000;
 
@@ -95,20 +99,53 @@ export function ensureCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions) {
     return request;
 }
 
+/**
+ * FrameScript exports are ordinary Canvas assets, but keeping them in one
+ * library folder makes later review and cleanup safe and discoverable.
+ * Folder creation is best-effort: a transient folder API failure must not
+ * prevent the actual canvas asset from being saved.
+ */
+export function ensureFrameScriptAssetFolderId() {
+    if (!frameScriptAssetFolderPromise) {
+        frameScriptAssetFolderPromise = listAssetFolders()
+            .then(({ folders }) => folders.find((folder) => folder.name.trim() === FRAME_SCRIPT_ASSET_FOLDER_NAME)?.id)
+            .then(async (folderId) => {
+                if (folderId) return folderId;
+                const { folder } = await createAssetFolder(FRAME_SCRIPT_ASSET_FOLDER_NAME);
+                return folder.id;
+            })
+            .catch((error) => {
+                frameScriptAssetFolderPromise = undefined;
+                console.warn("FrameScript 素材分类创建失败，将继续保存到未分类", error);
+                return undefined;
+            });
+    }
+    return frameScriptAssetFolderPromise;
+}
+
+function isFrameScriptAssetNode(node: CanvasNodeData) {
+    return Boolean(node.metadata?.frameScriptSourceNodeId || node.metadata?.frameScriptStoryboardNodeId);
+}
+
 async function persistCanvasNodeAsset(options: EnsureCanvasNodeAssetOptions): Promise<CanvasNodeAssetResult> {
     throwIfAborted(options.signal);
     const store = useAssetStore.getState();
     let asset = findCanvasNodeAsset(store.assets, options.node, options.canvasId, options.taskId);
     const declaredCategory = options.category || declaredCanvasNodeAssetCategory(options.node);
     let created = false;
+    const assetFolderId = options.assetFolderId ?? (isFrameScriptAssetNode(options.node) ? await ensureFrameScriptAssetFolderId() : undefined);
     if (!asset) {
-        const input = canvasNodeToAsset(options.node, { canvasId: options.canvasId, source: options.source, taskId: options.taskId });
+        const input = canvasNodeToAsset(options.node, { canvasId: options.canvasId, source: options.source, taskId: options.taskId, folderId: assetFolderId });
         if (!input) throw new Error("当前节点没有可保存的素材内容");
         const assetId = store.addAsset(options.category ? { ...input, category: options.category } : input);
         asset = useAssetStore.getState().assets.find((item) => item.id === assetId);
         created = true;
     }
     if (!asset) throw new Error("素材写入本地失败");
+    if (assetFolderId && asset.folderId !== assetFolderId) {
+        store.updateAsset(asset.id, { folderId: assetFolderId });
+        asset = useAssetStore.getState().assets.find((item) => item.id === asset?.id) || asset;
+    }
     if (declaredCategory && asset.category !== declaredCategory) {
         store.updateAsset(asset.id, { category: declaredCategory });
         asset = useAssetStore.getState().assets.find((item) => item.id === asset?.id) || asset;

@@ -1,19 +1,11 @@
 import type { EditorSlotKind, PluginManifest, PluginManifestV2, RegisteredPlugin } from "./plugin-types";
 import { unregisterPluginSlots } from "./editor-slot-registry";
+import { VIDEO_PLUGIN_CAPABILITIES, VIDEO_PLUGIN_PERMISSIONS } from "./video-plugin";
 import { registerPluginCanvasNodes, unregisterNodeDefinitions } from "@/lib/canvas/node-registry";
 
 const registeredPlugins = new Map<string, RegisteredPlugin>();
 
-const EDITOR_SLOT_KINDS: EditorSlotKind[] = [
-    "timeline-panel",
-    "preview-renderer",
-    "inspector",
-    "asset-ingest",
-    "subtitle-tool",
-    "transcription-provider",
-    "export-renderer",
-    "ai-assistant",
-];
+const EDITOR_SLOT_KINDS: EditorSlotKind[] = ["timeline-panel", "preview-renderer", "inspector", "asset-ingest", "subtitle-tool", "transcription-provider", "export-renderer", "ai-assistant"];
 
 function assertManifest(manifest: PluginManifest | PluginManifestV2) {
     if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(manifest.id)) throw new Error("插件 ID 必须使用 kebab-case");
@@ -23,6 +15,19 @@ function assertManifest(manifest: PluginManifest | PluginManifestV2) {
         throw new Error(`不支持的插件 API 版本：${apiVersion}`);
     }
     if (new Set(manifest.permissions).size !== manifest.permissions.length) throw new Error("插件权限不能重复");
+    const engineIds = new Set<string>();
+    for (const engine of manifest.contributes?.videoPlugins ?? []) {
+        if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(engine.id) || !engine.label.trim() || engine.type !== "video") throw new Error("视频插件贡献需要合法 ID、名称和类型");
+        if (engineIds.has(engine.id)) throw new Error("视频引擎贡献 ID 不能重复");
+        engineIds.add(engine.id);
+        if (engine.stage !== "scaffold" && engine.stage !== "ready") throw new Error("视频引擎阶段无效");
+        if (!engine.capabilities.length || new Set(engine.capabilities).size !== engine.capabilities.length || engine.capabilities.some((capability) => !(VIDEO_PLUGIN_CAPABILITIES as readonly string[]).includes(capability)))
+            throw new Error("视频插件能力无效");
+        const planned = engine.plannedCapabilities ?? [];
+        if (new Set(planned).size !== planned.length || planned.some((capability) => !(VIDEO_PLUGIN_CAPABILITIES as readonly string[]).includes(capability) || engine.capabilities.includes(capability)))
+            throw new Error("视频插件预留能力无效或与当前能力重复");
+        if (!engine.capabilities.every((capability) => VIDEO_PLUGIN_PERMISSIONS[capability].every((permission) => (manifest.permissions as readonly string[]).includes(permission)))) throw new Error("视频插件缺少所需权限");
+    }
     if (manifest.apiVersion === "yingce.plugin/v2") assertManifestV2(manifest);
     else assertManifestV1Contributions(manifest.contributes);
 }

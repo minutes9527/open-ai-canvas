@@ -216,7 +216,17 @@ export function buildCanvasNodeMentionReferenceMap(nodes: CanvasNodeData[], conn
         const configTargetId = configTargetBySourceId.get(node.id);
         const configInputs = configTargetId ? (resourceInputsByTargetId.get(configTargetId) || []).filter((input) => input.id !== node.id) : [];
         const ownInputs = resourceInputsByTargetId.get(node.id) || [];
-        const inputs = configInputs.length ? configInputs : ownInputs.filter((input) => input.id !== node.id);
+        const persistedReferenceIds = [
+            ...(node.metadata?.frameScriptStoryboardReferenceNodeIds || []),
+            ...(node.metadata?.frameScriptStoryboardReferenceNodeId ? [node.metadata.frameScriptStoryboardReferenceNodeId] : []),
+        ];
+        const metadataReferenceInputs = persistedReferenceIds
+            .map((referenceNodeId) => nodeById.get(referenceNodeId))
+            .filter((input): input is CanvasNodeData => input !== undefined && input.id !== node.id && isResourceNode(input));
+        const connectedInputs = configInputs.length ? configInputs : ownInputs.filter((input) => input.id !== node.id);
+        const inputs = metadataReferenceInputs.length
+            ? uniqueCanvasNodes(metadataReferenceInputs)
+            : uniqueCanvasNodes(connectedInputs);
         referencesByNodeId.set(node.id, labelResourceNodes(inputs, true));
     }
     return referencesByNodeId;

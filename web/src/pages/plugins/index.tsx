@@ -10,11 +10,20 @@ import { EAGLE_PLUGIN_ID } from "@/lib/plugins/builtin/eagle";
 import { PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimizer";
 import { COMFYUI_PLUGIN_ID, RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { MEDIA_CONVERSION_PLUGIN_ID } from "@/lib/plugins/builtin/media-conversion";
+import {
+    DEFAULT_FRAMESCRIPT_PROMPT_MODEL,
+    DEFAULT_FRAMESCRIPT_TRANSCRIPTION_MODEL,
+    DEFAULT_FRAMESCRIPT_VISION_MODEL,
+    FRAMESCRIPT_VIDEO_ENGINE_ID,
+} from "@/lib/plugins/builtin/framescript-video-engine";
 import { ART_CRITIQUE_PLUGIN_ID } from "@/lib/art-critique/contracts";
 import type { PluginManifest, PluginManifestV2, RegisteredPlugin } from "@/lib/plugins/plugin-types";
 import { getEagleLibrary, type EagleFolder } from "@/services/api/eagle";
+import { getSystemChannels, listAdminChannels } from "@/services/api/auth";
 import { fetchPlugins, setUserPluginEnabled, type BackendPlugin, type PluginState } from "@/services/api/plugins";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
+import { modelOptionName, useConfigStore, type ModelChannel } from "@/stores/use-config-store";
+import { refreshSystemChannels } from "@/lib/user-session";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -32,6 +41,7 @@ const categoryLabels: Record<string, string> = {
     "usage-observer": "用量观察",
     agent: "智能体",
     "import-export": "导入导出",
+    "video-plugin": "视频引擎",
 };
 
 const surfaceLabels: Record<string, string> = {
@@ -50,6 +60,7 @@ const permissionLabels: Record<string, string> = {
     "asset.upload": "上传素材",
     "generation.run": "调用生成",
     "ai.text": "调用已配置的文本/视觉理解模型",
+    "ai.audio": "调用已配置的语音转写模型",
     "media.read": "读取输入媒体",
     "external.open": "打开外部详情",
 };
@@ -77,6 +88,7 @@ export default function PluginsPage() {
     const setPluginStates = usePluginStore((state) => state.setPluginStates);
     const pluginStates = usePluginStore((state) => state.pluginStates);
     const updateConfig = usePluginStore((state) => state.updateConfig);
+    const systemChannels = useConfigStore((state) => state.config.channels);
     const builtinPlugins = useMemo(() => listRegisteredPlugins(), []);
     const [backendPlugins, setBackendPlugins] = useState<BackendPlugin[]>([]);
     const [backendPluginsLoading, setBackendPluginsLoading] = useState(false);
@@ -94,6 +106,14 @@ export default function PluginsPage() {
     const [eagleFolders, setEagleFolders] = useState<EagleFolder[]>([]);
     const [eagleFoldersLoading, setEagleFoldersLoading] = useState(false);
     const [eagleFoldersError, setEagleFoldersError] = useState("");
+    const [frameScriptAdminChannels, setFrameScriptAdminChannels] = useState<ModelChannel[]>([]);
+    const [frameScriptChannelsLoading, setFrameScriptChannelsLoading] = useState(false);
+    const [frameScriptChannelId, setFrameScriptChannelId] = useState("");
+    const [frameScriptVisionModel, setFrameScriptVisionModel] = useState("");
+    const [frameScriptPromptModel, setFrameScriptPromptModel] = useState("");
+    const [frameScriptTranscriptionModel, setFrameScriptTranscriptionModel] = useState("");
+    const [frameScriptChangeThreshold, setFrameScriptChangeThreshold] = useState(0.32);
+    const [frameScriptSamplingIntervalMs, setFrameScriptSamplingIntervalMs] = useState(400);
     const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
     useEffect(() => {
@@ -201,6 +221,72 @@ export default function PluginsPage() {
     const settingsEnabled = settingsPlugin ? (pluginStates[settingsPlugin.manifest.id]?.effectiveEnabled ?? Boolean(settingsInstallation?.enabled)) : false;
     const detailsPlugin = detailsPluginId ? registeredPlugins.find((plugin) => plugin.manifest.id === detailsPluginId) : undefined;
 
+    const frameScriptChannels = useMemo(() => {
+        const channels = frameScriptAdminChannels.length ? frameScriptAdminChannels : systemChannels.filter((channel) => channel.scope === "system");
+        return channels.filter((channel) => channel.enabled !== false);
+    }, [frameScriptAdminChannels, systemChannels]);
+    const selectedFrameScriptChannel = useMemo(
+        () => frameScriptChannels.find((channel) => channel.id === frameScriptChannelId),
+        [frameScriptChannelId, frameScriptChannels],
+    );
+    const frameScriptModelOptions = useMemo(() => {
+        const models = selectedFrameScriptChannel?.models || [];
+        return [...new Set(models.map((model) => modelOptionName(model).trim()).filter(Boolean))].map((model) => ({ value: model, label: model }));
+    }, [selectedFrameScriptChannel]);
+
+    useEffect(() => {
+        if (settingsPlugin?.manifest.id !== FRAMESCRIPT_VIDEO_ENGINE_ID) return;
+        setFrameScriptChannelsLoading(true);
+        // 先刷新普通配置缓存；系统模型目录可能因价格配置而为空，不能把它作为唯一来源。
+        void refreshSystemChannels().catch(() => {
+            // 保留已缓存的系统渠道；下面仍会尝试读取后台渠道列表。
+        });
+
+        // 插件设置页需要完整的系统渠道模型键（包括尚未配置价格的模型）。
+        // 先走面向用户的只读系统渠道接口，避免普通用户依赖管理员权限；
+        // 旧后端或管理员环境下再回退到后台分页接口。
+        void (async () => {
+            const channels: ModelChannel[] = [];
+            try {
+                const result = await getSystemChannels();
+                channels.push(...(result.channels || []));
+                // 系统只读接口可能因价格目录过滤返回空列表；后台渠道接口仍包含完整模型键。
+                if (!channels.length) {
+                    const fallback = await listAdminChannels({ page: 1, limit: 100 });
+                    channels.push(...(fallback.channels || []));
+                }
+            } catch {
+                // 旧后端没有只读系统渠道接口时，回退到管理员分页接口。
+                try {
+                    const result = await listAdminChannels({ page: 1, limit: 100 });
+                    channels.push(...(result.channels || []));
+                } catch {
+                    // 保留已有缓存，保存时仍会阻止选择不存在的渠道。
+                }
+            }
+            if (channels.length) {
+                setFrameScriptAdminChannels([...new Map(channels.map((channel) => [channel.id, channel])).values()]);
+            }
+            setFrameScriptChannelsLoading(false);
+        })();
+    }, [settingsPlugin?.manifest.id]);
+
+    useEffect(() => {
+        if (settingsPlugin?.manifest.id !== FRAMESCRIPT_VIDEO_ENGINE_ID) return;
+        const config = settingsInstallation?.config || {};
+        const configuredModels = [config.visionModel, config.promptModel, config.transcriptionModel].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+        const configuredChannelId = typeof config.channelId === "string" ? config.channelId : "";
+        const inferredChannel = frameScriptChannels.find((channel) => configuredChannelId === channel.id) || frameScriptChannels.find((channel) => configuredModels.some((model) => channel.models.some((item) => modelOptionName(item) === model.trim())));
+        const channelModels = inferredChannel?.models.map((model) => modelOptionName(model).trim()).filter(Boolean) || [];
+        const pickModel = (value: unknown, fallback: string) => typeof value === "string" && channelModels.includes(value.trim()) ? value.trim() : channelModels[0] || fallback;
+        setFrameScriptChannelId(inferredChannel?.id || configuredChannelId);
+        setFrameScriptVisionModel(inferredChannel ? pickModel(config.visionModel, DEFAULT_FRAMESCRIPT_VISION_MODEL) : "");
+        setFrameScriptPromptModel(inferredChannel ? pickModel(config.promptModel, DEFAULT_FRAMESCRIPT_PROMPT_MODEL) : "");
+        setFrameScriptTranscriptionModel(inferredChannel ? pickModel(config.transcriptionModel, DEFAULT_FRAMESCRIPT_TRANSCRIPTION_MODEL) : "");
+        setFrameScriptChangeThreshold(typeof config.changeThreshold === "number" ? config.changeThreshold : Number(config.changeThreshold) || 0.32);
+        setFrameScriptSamplingIntervalMs(typeof config.samplingIntervalMs === "number" ? config.samplingIntervalMs : Number(config.samplingIntervalMs) || 400);
+    }, [frameScriptChannels, settingsInstallation?.config, settingsInstallation?.updatedAt, settingsPlugin?.manifest.id, settingsPluginId]);
+
     const hasPluginConfiguration = (plugin: RegisteredPlugin) => Boolean(plugin.manifest.configuration?.fields?.length);
     const canConfigurePlugin = (plugin: RegisteredPlugin) => Boolean(pluginStates[plugin.manifest.id]?.canConfigure) && (hasPluginConfiguration(plugin) || plugin.manifest.id === RUNNINGHUB_PLUGIN_ID || plugin.manifest.id === COMFYUI_PLUGIN_ID);
 
@@ -242,6 +328,39 @@ export default function PluginsPage() {
         }
         updateConfig(EAGLE_PLUGIN_ID, { baseUrl, autoUploadGenerated: eagleAutoUploadGenerated, generatedFolderId: eagleGeneratedFolderId });
         message.success("Eagle 插件配置已保存");
+    };
+
+    const saveFrameScriptConfig = () => {
+        if (!frameScriptChannelId || !selectedFrameScriptChannel) {
+            message.error("请先关联一个系统渠道；模型列表将从该渠道读取");
+            return;
+        }
+        const availableModels = new Set(selectedFrameScriptChannel.models.map((model) => modelOptionName(model).trim()).filter(Boolean));
+        if (!frameScriptVisionModel.trim() || !frameScriptPromptModel.trim() || !frameScriptTranscriptionModel.trim()) {
+            message.error("请为画面分析、图片提示词和语音转写选择模型");
+            return;
+        }
+        if (![frameScriptVisionModel, frameScriptPromptModel, frameScriptTranscriptionModel].every((model) => availableModels.has(model.trim()))) {
+            message.error("所选模型不属于当前关联渠道，请重新选择");
+            return;
+        }
+        if (!Number.isFinite(frameScriptChangeThreshold) || frameScriptChangeThreshold < 0.01 || frameScriptChangeThreshold > 1) {
+            message.error("候选帧变化阈值必须在 0.01–1 之间");
+            return;
+        }
+        if (!Number.isFinite(frameScriptSamplingIntervalMs) || frameScriptSamplingIntervalMs < 100 || frameScriptSamplingIntervalMs > 2000) {
+            message.error("扫描间隔必须在 100–2000 毫秒之间");
+            return;
+        }
+        updateConfig(FRAMESCRIPT_VIDEO_ENGINE_ID, {
+            channelId: frameScriptChannelId,
+            visionModel: frameScriptVisionModel.trim(),
+            promptModel: frameScriptPromptModel.trim(),
+            transcriptionModel: frameScriptTranscriptionModel.trim(),
+            changeThreshold: frameScriptChangeThreshold,
+            samplingIntervalMs: frameScriptSamplingIntervalMs,
+        });
+        message.success("FrameScript 渠道配置已保存");
     };
 
     return (
@@ -563,6 +682,58 @@ export default function PluginsPage() {
                                                 </Button>
                                             </div>
                                         </>
+                                    ) : settingsPlugin.manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID ? (
+                                        <>
+                                            <p className="mb-3 text-[var(--fs-micro)] text-foreground/55">Canvas 负责画布中的 FrameScript 工作流，并从系统渠道读取模型；API Key 与模型由系统渠道统一管理。</p>
+                                            <div className="plugin-settings-fields">
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-channel">关联系统渠道</label>
+                                                    <Select
+                                                        id="framescript-channel"
+                                                        aria-label="关联系统渠道"
+                                                        className="w-full"
+                                                        value={frameScriptChannelId || undefined}
+                                                        loading={frameScriptChannelsLoading}
+                                                        placeholder={frameScriptChannelsLoading ? "正在读取系统渠道…" : frameScriptChannels.length ? "选择 Canvas 系统渠道" : "请先在系统渠道中配置渠道"}
+                                                        options={frameScriptChannels.map((channel) => ({ value: channel.id, label: `${channel.name}（${channel.models.length} 个模型）` }))}
+                                                        onChange={(value) => {
+                                                            const nextChannel = frameScriptChannels.find((channel) => channel.id === value);
+                                                            const nextModels = nextChannel?.models.map((model) => modelOptionName(model).trim()).filter(Boolean) || [];
+                                                            setFrameScriptChannelId(value);
+                                                            setFrameScriptVisionModel(nextModels.includes(frameScriptVisionModel) ? frameScriptVisionModel : nextModels[0] || "");
+                                                            setFrameScriptPromptModel(nextModels.includes(frameScriptPromptModel) ? frameScriptPromptModel : nextModels[0] || "");
+                                                            setFrameScriptTranscriptionModel(nextModels.includes(frameScriptTranscriptionModel) ? frameScriptTranscriptionModel : nextModels[0] || "");
+                                                        }}
+                                                        showSearch
+                                                        optionFilterProp="label"
+                                                    />
+                                                    <p>{frameScriptChannels.length ? "API Key 和模型由系统渠道统一维护；这里只选择渠道及其模型。" : "请先前往系统渠道添加并启用一个渠道。"}</p>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-vision-model">画面分析模型</label>
+                                                    <Select id="framescript-vision-model" aria-label="画面分析模型" className="w-full" disabled={!selectedFrameScriptChannel} value={frameScriptVisionModel || undefined} options={frameScriptModelOptions} placeholder="从关联渠道选择模型" onChange={setFrameScriptVisionModel} showSearch optionFilterProp="label" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-prompt-model">图片提示词模型</label>
+                                                    <Select id="framescript-prompt-model" aria-label="图片提示词模型" className="w-full" disabled={!selectedFrameScriptChannel} value={frameScriptPromptModel || undefined} options={frameScriptModelOptions} placeholder="从关联渠道选择模型" onChange={setFrameScriptPromptModel} showSearch optionFilterProp="label" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-transcription-model">语音转写模型</label>
+                                                    <Select id="framescript-transcription-model" aria-label="语音转写模型" className="w-full" disabled={!selectedFrameScriptChannel} value={frameScriptTranscriptionModel || undefined} options={frameScriptModelOptions} placeholder="从关联渠道选择模型" onChange={setFrameScriptTranscriptionModel} showSearch optionFilterProp="label" />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-threshold">候选帧变化阈值</label>
+                                                    <Input id="framescript-threshold" aria-label="候选帧变化阈值" type="number" min={0.01} max={1} step={0.01} value={frameScriptChangeThreshold} onChange={(event) => setFrameScriptChangeThreshold(Number(event.target.value))} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-interval">扫描间隔（毫秒）</label>
+                                                    <Input id="framescript-interval" aria-label="扫描间隔（毫秒）" type="number" min={100} max={2000} step={50} value={frameScriptSamplingIntervalMs} onChange={(event) => setFrameScriptSamplingIntervalMs(Number(event.target.value))} />
+                                                </div>
+                                            </div>
+                                            <div className="plugin-settings-actions">
+                                                <Button type="primary" icon={<CheckCircle2 className="size-4" />} onClick={saveFrameScriptConfig}>保存配置</Button>
+                                            </div>
+                                        </>
                                     ) : settingsPlugin.manifest.id === PROMPT_OPTIMIZER_PLUGIN_ID ? (
                                         <div className="rounded-[var(--r-md)] border border-border/60 bg-muted/25 px-3 py-3 text-[var(--fs-body)] leading-6 text-foreground/70">
                                             <p>在创作页或图片、视频节点的提示词编辑器中使用“优化”按钮，即可让当前文本模型整理提示词。</p>
@@ -624,7 +795,7 @@ function toRegisteredPlugin(plugin: BackendPlugin): RegisteredPlugin {
 }
 
 function isOfficialApplicationPlugin(pluginId: string) {
-    return [RUNNINGHUB_PLUGIN_ID, COMFYUI_PLUGIN_ID, EAGLE_PLUGIN_ID, PROMPT_OPTIMIZER_PLUGIN_ID, "portrait-clearance", ART_CRITIQUE_PLUGIN_ID, MEDIA_CONVERSION_PLUGIN_ID].includes(pluginId);
+    return [RUNNINGHUB_PLUGIN_ID, COMFYUI_PLUGIN_ID, EAGLE_PLUGIN_ID, PROMPT_OPTIMIZER_PLUGIN_ID, "portrait-clearance", ART_CRITIQUE_PLUGIN_ID, MEDIA_CONVERSION_PLUGIN_ID, "framescript-video-engine", "mock-video-renderer"].includes(pluginId);
 }
 
 function pluginSourceLabel(plugin: RegisteredPlugin, state?: PluginState) {
@@ -647,6 +818,9 @@ function contributionKindsFor(manifest: PluginManifest | PluginManifestV2): stri
     if (contributions.usageObservers?.length) kinds.push("usage-observer");
     if (contributions.agents?.length) kinds.push("agent");
     if (contributions.importExport?.length) kinds.push("import-export");
+    // FrameScript is a canvas application node that performs video
+    // understanding; it is not a video generation protocol/provider.
+    if (contributions.videoPlugins?.length && manifest.id !== FRAMESCRIPT_VIDEO_ENGINE_ID) kinds.push("video-plugin");
     return kinds;
 }
 
@@ -656,9 +830,12 @@ function providerCapabilitiesFor(manifest: PluginManifest | PluginManifestV2) {
 
 function pluginMatchesCategory(manifest: PluginManifest | PluginManifestV2, category: string) {
     const providerCapabilities = providerCapabilitiesFor(manifest);
+    const isFrameScriptCanvasPlugin = manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID;
+    const hasVideoPlugin = Boolean(manifest.contributes.videoPlugins?.length) && !isFrameScriptCanvasPlugin;
     const isPaymentProtocol = Boolean(manifest.contributes.paymentProviders?.length);
     if (category === "payment") return isPaymentProtocol;
-    if (category === "other") return !isPaymentProtocol && providerCapabilities.length === 0;
+    if (category === "other") return !isPaymentProtocol && providerCapabilities.length === 0 && !hasVideoPlugin;
+    if (category === "video") return providerCapabilities.includes("video") || hasVideoPlugin;
     return providerCapabilities.includes(category as "text" | "image" | "video" | "audio");
 }
 

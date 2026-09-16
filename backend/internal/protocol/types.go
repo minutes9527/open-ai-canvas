@@ -287,6 +287,7 @@ type ManifestField struct {
 }
 
 type ManifestContributions struct {
+	VideoPlugins     []ManifestVideoPlugin     `json:"videoPlugins,omitempty"`
 	Providers        []ManifestProvider        `json:"providers,omitempty"`
 	PaymentProviders []ManifestPaymentProvider `json:"paymentProviders,omitempty"`
 	Workflows        []ManifestWorkflow        `json:"workflows,omitempty"`
@@ -298,6 +299,17 @@ type ManifestContributions struct {
 	AICapabilities   []string                  `json:"aiCapabilities,omitempty"`
 	Agents           []string                  `json:"agents,omitempty"`
 	ImportExport     []string                  `json:"importExport,omitempty"`
+}
+
+// ManifestVideoPlugin declares a capability-based video integration. Its
+// executable implementation, if any, is bound only by a trusted host adapter.
+type ManifestVideoPlugin struct {
+	ID                  string   `json:"id"`
+	Label               string   `json:"label"`
+	Type                string   `json:"type"`
+	Stage               string   `json:"stage"`
+	Capabilities        []string `json:"capabilities"`
+	PlannedCapabilities []string `json:"plannedCapabilities,omitempty"`
 }
 
 type ManifestPaymentProvider struct {
