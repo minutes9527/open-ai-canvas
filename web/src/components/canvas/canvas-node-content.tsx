@@ -35,6 +35,9 @@ import { HtmlNodeContent } from "./nodes/html-node";
 import { PanoramaNodeContent } from "./nodes/panorama-node";
 import { SvgNodeContent } from "./nodes/svg-node";
 import { ArtCritiqueNodeContent } from "./nodes/ai-art-critique-node";
+import { FrameScriptVideoReviewNodeContent } from "./nodes/framescript-video-review-node";
+import { FrameScriptStoryboardNodeContent } from "./nodes/framescript-storyboard-node";
+import { FRAMESCRIPT_STORYBOARD_NODE_TYPE, FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE } from "@/lib/framescript-video-review/contracts";
 
 export type CanvasNodeContentProps = {
     node: CanvasNodeData;
@@ -77,10 +80,10 @@ export function CanvasNodeContent(props: CanvasNodeContentProps) {
     if (props.node.metadata?.status === "loading") return <LoadingContent node={props.node} theme={props.theme} onOpenTaskDetails={props.onOpenTaskDetails} />;
     if (props.node.metadata?.status === "error") return <ErrorContent node={props.node} theme={props.theme} onRetry={props.onRetry} onReloadResource={props.onReloadResource} />;
 
-    const pluginDefinition = getNodeDefinition(props.node.type)?.plugin;
-    if (pluginDefinition) return <PluginCanvasNodeContent {...props} renderer={pluginDefinition.renderer} schema={pluginDefinition.schema} />;
     const Renderer = nodeContentRenderers[props.node.type];
-    return Renderer ? <Renderer {...props} /> : <UnknownNodeContent theme={props.theme} />;
+    if (Renderer) return <Renderer {...props} />;
+    const pluginDefinition = getNodeDefinition(props.node.type)?.plugin;
+    return pluginDefinition ? <PluginCanvasNodeContent {...props} renderer={pluginDefinition.renderer} schema={pluginDefinition.schema} /> : <UnknownNodeContent theme={props.theme} />;
 }
 
 function PluginCanvasNodeContent({ node, theme, renderer, schema }: CanvasNodeContentProps & { renderer: "declarative" | "sandbox"; schema: Record<string, unknown> }) {
@@ -121,6 +124,8 @@ const nodeContentRenderers: Partial<Record<string, (props: CanvasNodeContentProp
     [CanvasNodeType.Compare]: CompareNodeContent,
     [CanvasNodeType.Chart]: ChartNodeContent,
     [CanvasNodeType.ColorGrade]: ColorGradeNodeContent,
+    [FRAMESCRIPT_VIDEO_REVIEW_NODE_TYPE]: ({ node }) => <FrameScriptVideoReviewNodeContent node={node} />,
+    [FRAMESCRIPT_STORYBOARD_NODE_TYPE]: ({ node, scale, onConnectStart }) => <FrameScriptStoryboardNodeContent node={node} scale={scale} onConnectStart={onConnectStart} />,
 };
 
 function DrawingContent({ node, theme, drawingProjectId }: CanvasNodeContentProps) {
