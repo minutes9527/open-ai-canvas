@@ -1,11 +1,10 @@
 import type { CanvasColorGrade } from "@/lib/canvas/canvas-color-grade";
-import type { MediaConversionNodeState } from "@/lib/media-conversion/contracts";
 import type { FrameScriptStoryboardNodeState, FrameScriptVideoReviewNodeState } from "@/lib/framescript-video-review/contracts";
 import type { AssetCategory } from "@/lib/asset-category";
 import type { PortraitTextureSettings } from "@/lib/canvas/canvas-portrait-texture";
 import type { StyleExecutionPlan } from "@/lib/canvas/style-profile";
-import type { PortraitClearanceNodeState } from "@/lib/portrait-clearance/contracts";
 import type { ArtCritiqueNodeState } from "@/lib/art-critique/contracts";
+import type { CameraControlOptions } from "@/lib/canvas/camera-prompt-library";
 import type { SrtEntry, SubtitleHighlight, SubtitleStyle } from "@/types/timeline";
 
 export type Position = {
@@ -36,7 +35,6 @@ export enum CanvasNodeType {
     Compare = "compare",
     Chart = "chart",
     ColorGrade = "colorgrade",
-    MediaConversion = "media-conversion",
 }
 
 /** Runtime IDs contributed by plugins share the persisted node type field. */
@@ -226,10 +224,9 @@ export type CanvasNodeMetadata = {
     generationMode?: CanvasGenerationMode;
     generationType?: CanvasImageGenerationType;
     model?: string;
-    workflowProvider?: "model" | "runninghub" | "comfyui";
+    workflowProvider?: "model" | "runninghub";
     runningHubWorkflowId?: string;
     runningHubWorkflowKind?: "workflow" | "app";
-    comfyBridgeWorkflowId?: string;
     /** 当前画布节点覆盖的工作流动态字段，键为 source:* 或 field:nodeId:fieldName。 */
     workflowParameters?: Record<string, unknown>;
     size?: string;
@@ -366,12 +363,11 @@ export type CanvasNodeMetadata = {
     /** 调色节点的参数；缺省视为未调色。 */
     colorGrade?: CanvasColorGrade;
     /** 本地图片/视频转换节点的参数、来源指纹和结果状态。 */
-    mediaConversion?: MediaConversionNodeState;
+    mediaConversion?: Record<string, unknown>;
     /** FrameScript 视频理解节点的候选帧复核与确认后分析结果（不含原始媒体字节）。 */
     framescriptVideoReview?: FrameScriptVideoReviewNodeState;
-    /** FrameScript 导出的轻量分镜复刻结果，不具备完整分镜脚本的生成能力。 */
+    /** FrameScript 导出的轻量分镜复刻结果。 */
     frameScriptStoryboard?: FrameScriptStoryboardNodeState;
-    /** FrameScript 导出的独立分镜帧来源信息。 */
     frameScriptSourceNodeId?: string;
     frameScriptSourceVideoId?: string;
     frameScriptFrameId?: string;
@@ -379,13 +375,11 @@ export type CanvasNodeMetadata = {
     frameScriptFrameTimeMs?: number;
     frameScriptFrameReasons?: string[];
     frameScriptExportedAt?: string;
-    /** Generated storyboard-image node linkage and reference assets. */
     frameScriptStoryboardNodeId?: string;
     frameScriptStoryboardFrameId?: string;
     frameScriptStoryboardReferenceNodeIds?: string[];
     frameScriptStoryboardReferenceNodeId?: string;
     frameScriptStoryboardImagePrompt?: string;
-    /** FrameScript 复刻行的视频提示词，创建视频节点时按镜头绑定读取。 */
     frameScriptStoryboardVideoPrompt?: string;
     /** 用户手动拉伸过尺寸；图片按真实比例自动适配时避让它。 */
     manualSize?: boolean;
@@ -446,10 +440,17 @@ export type CanvasNodeMetadata = {
         editMode?: "provider-mask" | "local-composite";
     };
     portraitTexture?: PortraitTextureSettings;
-    /** 肖像排查节点只保存可恢复的 UI 状态，不保存图片、embedding 或完整结果。 */
-    portraitClearance?: PortraitClearanceNodeState;
     /** AI 审美批改节点只保存当前报告和输入指纹，不保存图片二进制。 */
     artCritique?: ArtCritiqueNodeState;
+    /** 摄像机控制选项，启用后生成时自动追加摄影机/镜头/焦距/光圈提示词。 */
+    cameraControl?: CameraControlOptions;
+    /** 全景节点配置：投影方式、生成方式和比例兜底开关。 */
+    panoramaConfig?: {
+        projection: "spherical" | "cylindrical";
+        sourceMode: "ai" | "image";
+        smartBase: boolean;
+        directImageUrl?: string | null;
+    };
 };
 
 export type CanvasNodeData = {

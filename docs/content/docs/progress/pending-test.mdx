@@ -5,25 +5,402 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 # 待测试
 
-## Gemini Web2API 图片代理
+## 欢迎页开放开关
 
-- [x] 新增 `Gemini Web2API Image` 图片协议插件：模型使用 `gemini-image`，通过 `/v1/chat/completions` 请求，解析 Markdown 内嵌 Base64 图片；不使用 OpenAI Images 端点。
-- [x] 前后端默认关闭代理不支持的尺寸、质量、透明背景、输出格式和批量数量控制；图片仍通过现有图片生成流程处理。
-- [x] 专项测试覆盖请求映射、参考图片、Base64 结果、重复图片、纯文本/外链/损坏数据拒绝、错误脱敏和官方插件包校验。
-- [x] 已在管理页面为 `gemini-image` 保存图片能力与专用协议。首次实测因代理没有启用的 Cookie 账号而拒绝；用户恢复登录态后，真实图片模型测试通过，页面报告耗时 20.85 秒。
-- [x] 图片模型与默认价格档已启用，沿用 0 积分/次；管理页确认 `Gemini Web2API Image` 协议、图片能力和启用状态。
-- [ ] 确认生成图片能够保存并显示在首页/画布、素材库中；不把模拟响应测试视为上游实测。
+- 管理员在 `/admin/settings/appearance` 的英文品牌标识下方切换欢迎页，立即保存，沿用功能配置保存及审计流程，默认开启；功能开放页不再编辑该字段。
+- 欢迎页入口直接导入展示组件，Babel runtime 辅助代码固定独立分包（不按最小体积合并回路由），避免 AntD 反向加载工作台入口触发循环初始化错误。
+- 已通过前端类型检查和生产构建，并用构建产物在浏览器验证启用展示、关闭跳转、接口失败重试入口；外观页开关位置及真实管理员保存待部署验收。
+- 待浏览器验收：关闭后访客及已登录用户访问 `/welcome`、`/welcome/` 均跳转首页；重新开启后恢复展示；配置请求失败时显示重试入口，不展示欢迎页内容。
+- 开关在进入页面时检查，已经打开的欢迎页不主动退出；静态图片、视频资源不受此页面开关限制。
 
-实现位置：`plugin-packages/generate-catalog.mjs` 定义线协议，`backend/internal/protocol/markdown_images.go` 提供只提取内嵌栅格图片的表达式，前后端 `model-capabilities` 定义一致的默认能力。没有更改或上传渠道密钥。
+## 思考模型 Agent 工具选择兼容
 
-## 首页即梦 CLI 视频模式
+- 当前 Cloud Agent 和首页创造规划入口均使用自动工具选择，不固定发送 `tool_choice=required`。后端仍防御旧任务、旧客户端和其他结构化调用携带的强制选择。
+- 首页创造规划提示词只声明真实注册的 `creative_respond`，并把画布、模型和素材上下文明确标记为只读快照；不再诱导模型调用并不存在的 `canvas_*` 工具或假报节点已创建、分镜已生成。
+- OpenAI Chat Completion 兼容协议的自动选择在首个上游请求中直接省略 `tool_choice`；显式思考模式还会移除旧任务携带的 `required` 或指定函数对象，内置协议和声明式已知协议均有回归覆盖。非思考模式保留强制函数选择，上游隐式思考仍保留 `required` → `auto` → 省略字段的失败后兜底。
+- 已通过 Agent 工具选择专项后端测试；待用百炼 `qwen3.7-flash` 与 DeepSeek 思考模型真实渠道分别验收首请求正文，确认不再出现强制工具选择参数错误，且模型仍能自行调用画布工具。
 
-- [x] 首页视频生成在官方即梦 CLI 模型后显示明确的“全能参考／首尾帧／智能多帧”菜单；未展示 CLI 尚未支持的智能编辑和超长视频。
-- [x] 全能参考走 `multimodal2video`；首尾帧仅接受按顺序排列的 2 张图片并走 `frames2video`；智能多帧仅接受 2–20 张图片并走 `multiframe2video`。
-- [x] 即梦视频模式会按 CLI 能力调整素材类型、数量、时长和分辨率；用户选择会按账号保留。
-- [x] 应用启动后主动发现本机 Runtime 和即梦模型，无需先进设置页手动刷新。
-- [x] 前端 TypeScript、Runtime TypeScript 构建及相关专项测试通过；已在本地页面确认三项菜单、智能多帧参数与素材缺失提示。
-- [ ] 待用户使用真实素材各提交一次首尾帧和智能多帧收费任务，核对官方产物、素材顺序、任务中心恢复及生成结果入库；本次验收未自动触发收费生成。
+## Agent 模型能力筛选与跨轮草稿续用
+
+- 模型工具支持按生成模式和真实参考节点筛选，复用统一模型目录的能力匹配；多图视频不再依赖模型名称猜能力。具体时长、画幅、音频和价格仍由目录配置与任务准入共同约束，不提供静默换模型兜底。
+- 可续用未提交的空白媒体占位节点、当前运行草稿和已结束且清理完成的同用户同画布草稿，保持原节点 ID；仍在审批、清理中、已提交任务、已有成品、锁定节点和跨用户 / 画布草稿不可接管。续用重新审批，不跳过收费授权。
+- 媒体策略明确用户要求生成且参数齐备时直接调用生成工具进入审批；仅改词不擅自收费。此行为仍需真实模型验收，不能以策略文本测试代替模型实际执行。
+- 已通过后端 app / prompts 两包完整测试；最终引用连线调整后再次通过 Agent 专项回归。覆盖双图筛选、无候选不兜底、非法引用与跨用户拒绝、草稿状态与权限边界、跨轮原节点续用、新审批前无媒体任务、审批后只提交一次及移除过期引用连线。未调用真实收费模型。
+- 待验收：配置文生视频和多图视频模型，带两张参考图选择正确候选；上一轮取消后在原节点继续生成并出现新审批卡；确认不重复建节点、只填词不假报已提交、拒绝审批不收费。
+
+## Agent 节点能力卡与结构化分镜
+
+- 节点能力 registry 已升级，文本、Markdown、图片、视频、音频、背板和分镜脚本均向 Agent 返回用途、适用场景、不适用场景和维护代价；媒体能力卡还区分单图、单镜头文生视频、图生视频、多图参考视频与音频用途，并明确仍须按真实参考节点调用 `model_list` 筛选模型。
+- 节点选择采用软路由：单画面和临时试验可使用轻量节点；多镜头、连续性、逐镜审查 / 生成、资产关联或交接维护时优先结构化分镜。系统不强制所有任务创建分镜，但禁止把普通文本宣称为具备镜头级维护能力的分镜表。
+- 新增分镜脚本创建、分页读取和单行追加 / 修改 / 删除工具。镜头行 ID 由服务端生成；修改和删除必须使用最新读取的真实 `rowId` 与 `snapshotHash`，写入继续经过现有权限、审批、快照冲突和画布持久化路径。
+- 后端相关专项测试、前端生产构建和文档类型检查已通过。待真实模型和浏览器验收：简单单镜头自主选择轻量节点，多镜头任务创建结构化分镜；审批前画布不变化，审批后可在分镜 UI 中逐镜编辑，连续对话不改用 Markdown 重建整表。
+
+## 混合节点画布 Agent
+
+- 未注册 Agent 能力的节点（包括插件、配置、绘图节点）不再阻断整张画布的 Agent 摘要与分页读取；返回基础信息和 `agentSupported: false`，不读取任意 metadata，也不授予创建、修改或媒体引用能力。
+- 已补混合类型摘要、列表与指定节点读取、私有字段隔离、快照/连线保留和未支持类型创建拒绝测试。待真实账号验证混合画布能启动 Agent 并创建受支持的图片节点；不代表新增了插件节点编辑或全画布布局工具。
+
+## 画布 Agent 预算与按需技能
+
+- 已取消前后端最多 8 个技能、生成预算 8 / 120 秒和固定模型循环次数约束；生成数与视频累计秒数默认 0 表示不限，积分、权限、生成审批和供应商实际能力仍强校验。
+- 技能仅保存版本与路径，读取正文按 12000 字符分页；支持总正文超过 128KB 的多技能选择。读取版本变化或跨用户访问拒绝；运行事件只存技能回执。
+- 上下文瘦身只卸载可重新读取的历史正文，保留调用配对、生成回执、用户要求及最近完整工具轮次；不宣称语义摘要或无限上下文。原始字节安全边界仍保留。
+- 已补后端回归：10 个大技能、正文不预存、分页、跨用户拒绝、版本变更拒绝、0 预算可见生成工具、大于 120 秒和正预算约束、上下文配对与生成回执保留。
+- 待真实模型验收：多技能任务中按入口选择引用、跨多页读取和上下文卸载后重读、视频模型支持的长时任务及收费审批；浅蓝用户消息在明暗主题下的交互外观。
+
+## 素材 bytes 数字合同
+
+- 修复后端将 `bytes: null` 按数字零通过校验的问题，避免保存后被前端素材合同拒绝；图片、视频、音频、模型素材均覆盖。
+- 部署维护工具新增 `migrate-schema repair-asset-bytes`（默认只检查）和 `--apply`：仅使用同用户、同类型、就绪且大小为正的资源元数据修复；保留素材 ID、其他 JSON 字段和引用。无可靠资源的记录输出未解决报告，不填零；并发冲突或数据库写入错误整批回滚。操作步骤见后端数据库专题。
+- 已在 SQLite 和隔离 PostgreSQL 17 测试：只读预检、跨 100 条分页修复、缺失/null/字符串/负数处理、跨用户拒绝、合法值及其他 JSON 精度保留、重复运行幂等、写入失败整批回滚；待实际部署备份后执行并验收用户素材库。
+- 待确认：用户报错素材的实际 `data.bytes` 值及写入来源。此修复只阻止新的无效写入，不自动修改或删除历史素材；历史值需依据真实资源大小修复，不能批量填零。
+
+## 百炼多模态图像协议插件（dashscope-qwen-image）
+
+- 新增官方协议包 `plugin-packages/dashscope-qwen-image.yingce-plugin`，解决 `qwen-image-3.0-pro` / `wan2.7-image-pro` 无法调用的问题：这两个模型属于百炼多模态模型，走 OpenAI 图片端点会被网关判为“模型与端点不匹配”，官方错误码表现为 `url error, please check url`。
+- 协议形态：`POST /api/v1/services/aigc/image-generation/generation`（`X-DashScope-Async: enable`）+ 轮询 `GET /api/v1/tasks/{taskId}`；参考图放在 `input.messages[].content[].image`（优先 Base64 data URL），不使用 `/v1/images/edits` 的 multipart。
+- 已由单元测试覆盖：端点与异步头、文生图只发 text、图生图按 order 排序并优先 Base64、`size` 采用 DashScope 的星号格式且未登记档位省略、`enable_thinking` 固定 false、响应从 `output.choices[0].message.content[].image` 取图、上游失败保留错误信息。`go test ./internal/protocol/` 与 `go build ./...` 通过。
+- 待真实账号验收：用北京地域 Key 走一次文生图与一次图生图（换装），确认出图成功、参考图不报 url error。
+- 已知边界：协议用 `originPath` 声明请求路径，请求路径会替换渠道 Base URL 的路径段，因此渠道继续沿用 `.../compatible-mode/v1` 也能命中原生端点（`.../api/v1/services/...`）；只有域名需要正确。协议把 `size` 映射为 1024 级竖版/方形档位，未登记的档位会被省略并交由模型自动推荐（官方要求像素面积 512*512~2048*2048）。
+- 尚未处理：AI 模特页仍按“带参考图即走 `/images/edits`”的通用规则分支，未按协议能力判断；换成该插件后两阶段派生能否直接复用需实测确认。
+
+## 云端 Agent 行为、能力和偏好分层（待真实环境验收）
+
+- [x] 系统/媒体行为资源由后端发布物加载，运行快照记录策略和能力版本/哈希；用户 → 项目 → 画布偏好经归属校验和独立 revision CAS，合并 revision 固定到新轮次，旧轮次保留原快照。system prompt 只注入偏好清单，正文由 `agent_profile_read` 从固定快照按层读取。工具 schema、节点类型、可写字段和画布读取来自服务端节点能力 registry；收费生成还需实际媒体任务适配器。写入、审批与预算仍以服务端强校验为准。
+- [x] 数据库 append-only 迁移 v15 为关闭自动迁移的部署创建 `agent_profiles`；OpenAPI、功能清单、代码地图和数据库文档已同步。相关 Go 专项测试与前端构建结果以本次交付记录为准。
+- [x] 图片 / 视频 / 音频能力描述符允许更新标题和下一版提示词草稿，`content` 经字段合同映射到 `metadata.composerContent`；服务端回归测试覆盖失败视频节点，确认媒体结果、已提交 `prompt`、任务状态和引用问题不被覆盖。前端手工编辑与引用同步也已收敛到统一提示词写入器，纯函数测试覆盖三种媒体、空草稿、仅 storageKey 图片和文本节点。
+- [x] 终态旧 Capability 轮次可作为不可变历史创建当前合同的新轮，父运行保持原始 JSON；旧合同活动运行会明确终止，不恢复模型或工具执行。历史结构损坏改为 409，不再落成通用 500。客户端提交错误区分服务端明确失败和未收到响应。
+- [x] 审批预览与实际画布写入共用解析/校验/规划路径并固定 `callHash`；审批卡和 `canvas_updated.actions` 均携带节点标题、类型、修改字段、修改后标题及引用连线两端。解释信息不授权能力，执行仍校验归属、快照、Capability、锁和预算。
+- [ ] 在备份后的隔离 PostgreSQL 部署执行 `migrate-schema up` 和 `migrate-schema verify`，确认 v14→v15 后原有 Agent 轮次可查，新用户/项目/画布偏好能独立更新且不串账号。
+- [ ] 在真实登录态检查偏好编辑、并发冲突、三层继承、SSE 重连及续聊：修改偏好后新轮次使用新版本，旧轮次历史保持原样；试图在偏好中要求越权工具、跳过审批、任意 URL 或提升预算应被服务端拒绝。
+- [ ] 使用真实模型、计费与画布验证 read_only / request_approval / auto、节点精读/分页和 image/video/audio 生成的审批、收费限额、引用边界与失败恢复。静态测试不等于生产验收；系统策略 md 当前不是后台热更新。
+- [ ] 在真实画布分别选择失败和已完成的图片 / 视频 / 音频节点，让 Agent 修改标题与下一版提示词：编辑框应显示新草稿，旧媒体仍可预览或播放，已提交提示词、任务状态和引用状态保持不变；刷新后结果一致。
+- [ ] 对锁定媒体节点执行同类更新应被拒绝；尝试经 Agent 修改媒体 URL、`storageKey`、任务字段或其他未登记 metadata 也应被服务端拒绝，不能因 `content` 草稿别名扩大写权限。
+- [ ] 更新后重启本地后端，用调试包中的已完成父轮次 `ag045cb29d5cebb44cb42cedb235d2fc5a` 续发“继续操作”：应创建当前 Capability 合同的新轮，不再返回“系统处理失败”；父轮次状态和冻结合同保持不变。
+- [ ] 在真实审批和执行结果中确认：更新节点显示执行前名称、节点类型、修改字段和修改后名称；新增连线显示来源与目标标题/类型，点击可定位对应节点；普通 UI 不暴露完整内部 ID。
+
+## 多角度编辑器与宫格切分交互
+
+多角度改为贴在节点下方的 3D 轨道/天空盒预览（摄像头与天空盒切换、常用角度、方向箭头），宫格切分放在「图片工具」子菜单（预设 + 5×5 自定义点选），沿用当前 `--fg/--bg` 与 dock token，明暗主题共用同一套样式。
+
+- [ ] 打开图片节点「多角度」：面板贴在节点下方；拖动节点或平移画布时编辑器跟着节点走，不和节点分离。
+- [ ] 点「正面 / 左侧 / 右侧 / 背面 / 俯拍 / 仰拍」后滑条与底部「当前视角」同步；生成新角度仍创建子节点。
+- [ ] 切换浅色/深色：选中的标签、常用角度、镜头分段和滑条都跟随前景/背景，不出现浅色皮肤残留。
+- [ ] 「宫格切分」在节点工具栏「图片工具」里，不单独占一个工具栏按钮；与「裁剪 / 调整尺寸 / 标注」同一列表样式（图标 14px、标题/说明字号与左右对齐一致）；点开后有 4/9/16/25 宫格预设，点「自定义」后 5×5 板留在菜单内不闪退，最少 2 格才会切分。
+- [ ] 宫格列表左侧小宫格图标垂直居中，右侧箭头约 10px，不出现过大的 LayoutGrid。
+- [ ] 切分后子节点按网格排在原图右侧，互不覆盖，并保留原图提示词。
+- [ ] 框选多张图后拖动：虚线选框跟着被选节点一起移动，松手后仍贴合，不留空框或错位。
+
+## Agent 增量联动与可点击操作留痕
+
+- 服务端将草稿、提交和媒体成功 / 失败 / 取消的节点增量与运行检查点一起持久化；前端 40ms 合批投影，不按每条完成 / 失败事件全量刷新。缺口、断流或冲突才单请求校准，发起间隔至少 1 秒，期间重复通知仅保留一次尾随校准。
+- 按钮与提交入口共用节点任务状态，排队 / 运行中禁用，终态解锁；旧事件不能覆盖已换任务的节点。无关拖动、提示词编辑和视口保留，同字段冲突明确提示，不静默覆盖。
+- 参数选择允许用户授权的目录默认值，已接受推荐方案不再追加文字确认；图生视频参考图只进 `referenceNodeIds`，校验错误说明可执行修正方法。独立收费审批、能力和预算校验保持不变，失败不自动重提收费任务。
+- 聊天保存创建 / 更新 / 引用的节点名和节点 ID，点击复用画布聚焦，同一画布操作按工具调用 ID 去重；失败显示节点名、任务 ID、短摘要及可展开的完整错误。
+- [x] 96 项前端专项测试通过，覆盖 50 个不同节点完成的一次 Store / 编辑器投影、零全量 GET，50 条事件合批、限频 / 单请求、乱序 / 幂等、新任务隔离及冲突保护。后端 `TestCloudAgent` 专项覆盖失败 / 取消终态、画布删除后的失败检查点和审批边界；前端构建、文档类型检查通过，仍有既有大分块提示。
+- [x] 复用现有开发服务的隔离组件浏览器验证通过：创建 / 引用记录可点击，键盘可聚焦操作，模拟失败后共享任务状态解除按钮禁用，失败记录保留节点名且完整错误可展开。该验证使用真实工具卡组件与增量 / 聚焦函数，不等于完整画布路由或真实后端联调；未调用生成接口、未重启服务。隔离浏览器的开发热更新 WebSocket 受本地网络检查阻止，不影响这些组件断言。
+- [ ] 真实登录态验收多节点同时生成、SSE 断线重连、切换会话 / 画布及失败后的节点展示；核实实际模型遵循默认参数策略。未调用真实收费模型，附件中 MiniMax 上游协议失败仍需独立渠道排查，不能视为供应商问题已解决。
+
+## Agent 导出、媒体审批与文本引用
+
+- [ ] Agent 顶部下载按钮导出当前对话消息、当前运行的服务端事件、工具参数、审批和错误为 JSON；服务端读取失败仍导出本地记录并附错误。凭证、签名 URL 参数及内嵌媒体已尽力过滤，提示词和对话仍可能含隐私，分享前需检查。历史轮次未缓存的原始事件不在本次导出范围内。
+- [ ] 图片 / 视频遵守用户指定规格，明确授权默认时按上节选择；创建草稿及引用连线后显示独立审批，卡片展示真实模型名和规格。自动模式也必须等批准；拒绝 / 取消保留草稿，不创建媒体任务或预留媒体账单。聊天本身的文本模型费用不属于媒体生成审批。
+- [ ] 视频提示词输入 `@` 可选择全画布未连线文本，选中后建立真实引用连线、使用正确编号并将正文带入生成；已有引用编号、Config 输入、自引用、循环及锁定保护保持正确。
+- [ ] 仅平移 / 缩放 / 自动聚焦不会阻塞 Agent 同步或使审批快照失效；增量与本地无关字段编辑可合并，同字段冲突保留本地内容。审批仍对真实节点 / 连线变更进行快照校验。
+- [ ] 工具失败行直接显示具体错误及已有任务 ID，不必悬停；区分未提交任务与任务完成后回写失败。旧日志缺失的上游错误无法追溯补齐，需新导出记录验证实际渠道问题。
+- [x] 95 项前端专项测试、类型检查与生产构建通过（仍有大分块提示）；后端 Agent、任务准入和模型能力相关测试通过，覆盖自动模式审批、拒绝 / 取消无任务无媒体账单、重复审批幂等、草稿归属、视口保存后批准、真实快照冲突及错误详情保留。尚未进行本轮浏览器交互或真实模型生成验收，未启动 / 重启服务或操作真实画布数据。
+
+## 分镜表节点提示词面板
+
+- [ ] 新建、连线创建、复制、粘贴和定位分镜表节点时不打开通用提示词面板，并关闭之前节点残留的面板；单击和拖动继续保持不弹出。分镜表内部编辑、生成与图片 / 视频节点提示词面板不变，待真实浏览器确认。
+- [x] 4 项入口源码回归检查及前端类型检查 / 生产构建通过；构建仍有大分块提示，未进行浏览器交互验证。
+
+## Agent 运行闭环
+
+- [ ] 画布 Agent 媒体闭环：`model_list` 使用与生成面板一致的生效目录；支持读取节点 / 分镜表 / 角色资产绑定，审批时展示参考数量、画幅、质量、时长和音频。先创建图片 / 视频草稿和来源 / 资产连线，审批通过后原子绑定任务和账单；SSE 同步编辑器并聚焦新增节点，生成成功 / 失败 / 取消回写原节点。需使用真实已上传资产和模型渠道验证完整生成，不把测试数据库中的结果回写等同于真实出片。
+- [x] 媒体闭环专项：后端 63 个顶层测试通过（Agent、任务准入、模型选择和能力相关），包含双图有序引用、图片生成、审批拒绝、快照过期、跨账号 / 未就绪资源、事务失败无媒体任务和账单、模型错误可恢复、结果 / 失败 / 取消回写及分镜分页。前端 22 项测试通过，包含审批规格、媒体节点与连线刷新、结果回写、聚焦及冲突保护。前端类型检查与生产构建通过（仍有大分块提示）。本次未启动 / 重启开发服务、未调用真实收费模型、未读写用户画布；发布后需新发起一轮 Agent 请求以获取新工具合同，旧失败轮次不自动续跑。
+- [ ] 工具成功行取消重复的右侧“已完成”，参考路径允许换行；审批期间停止正文流式动效。模型选择器收窄至 144px，新增思考开关；真实模型兼容性、明暗主题和窄屏待浏览器验收。
+- [ ] Agent 写入后同步持久化 Store 与打开的编辑器节点 / 连线；新增节点时选中并平滑聚焦本批节点，优先保持缩放，范围过大才缩小，尽量避开可移动 Agent 浮窗。不新增节点及相同快照重放不抢视口；未提交的本地编辑仍拒绝覆盖并显示冲突。窄屏浮窗遮满画布时回退全画布居中，需收起浮窗查看。待真实审批、连续写入、浮窗换位及断线重放验收。
+- [ ] 节点标题增加明确拖动手柄，正文编辑 / 滚动与名称单击编辑保持不变；锁定节点显示锁定提示且不可拖动，只读画布不开放拖动。补齐 HTML / SVG 沙箱 iframe 吞掉拖动事件的问题：手柄捕获指针，拖动期间屏蔽画布内 iframe 命中，结束后恢复；全局手势监听保持稳定，避免重渲染中断拖动。待用户原画布节点、组合选择与解锁后拖动验收。
+- [x] 聚焦与拖动专项 11 项测试通过，覆盖视口几何、浮窗避让、拖动入口与 iframe 保护静态约束、刷新冲突和重复事件；前端类型检查与生产构建通过（仍有大分块提示）。复用现有开发服务，在隔离 Chromium 中挂载真实节点组件和手势控制器：合成 HTML 节点从 `(100,100)` 拖至 `(300,268)`，松手后停止；结束与失焦取消后 iframe 的 pointer-events 恢复为 auto；锁定 / 只读手柄禁用。未读写用户画布数据、未启动或重启服务，真实审批联调仍待验收。
+- [x] 本轮自动回归：前端 16 项测试通过，覆盖成功 / 失败工具行、长参考路径、编辑器刷新通知、本地冲突和重复事件；前端类型检查与生产构建通过（仍有大分块提示）。后端 `TestCloudAgent|TestRunAgentToolTask` 通过，覆盖审批写入、首轮及工具续轮思考配置、上游请求携带推理参数。未启动开发服务、未重启后端、未进行真实付费模型或浏览器验收。
+
+- [ ] Agent 工具调用后的下一轮模型请求：Chat Completions 的 `tool_calls` 补齐 `type: "function"`，Claude 保留 `tool_use`；真实渠道连续调用与失败任务重新发起待验收。
+- [ ] 后端重启窗口内读取已加入 Skills：对 5xx 做最多 3 次有限重试，恢复后清除旧错误卡；裸代理 502 不再展示 Axios 英文错误。需在重启后端期间打开 Agent 面板确认自动恢复且不污染对话。
+- [ ] Skills 工具回归：目录始终列出固定快照入口 `SKILL.md`，Agent 先读入口再读取必要 reference；实际读取显示技能名与路径，失败事件不再出现成功摘要。同一轮同技能同路径的重复请求被拒绝，并引导使用历史结果；刷新恢复后仍保留去重状态。技能正文不整段进入 system prompt，入口中的未知工具名不能突破本轮工具清单。
+- [ ] 模型断连回归：连接重置、超时、拒绝连接显示安全分类和模型任务 ID，未知错误仍引导任务中心排查；不向聊天面板暴露原始上游地址或密钥。不自动重试或恢复旧失败运行。
+- [x] Skills 反馈专项：前端 19 项工具摘要 / 错误语义 / 审批与布局测试通过，前端构建通过；后端 `TestCloudAgent` 专项通过，覆盖空目录、重复路径持久化、不同技能与文件隔离、缺失文件反馈，以及模型失败事件与脱敏。未调用真实模型或重启现有服务，真实浏览器验收仍待完成。
+- `/api/agent` 已注册能力、创建、追加消息、读取、取消、审批与事件流路由；一条消息对应一个持久化 `canvas_text` 任务，`cloud_agent_executions` 保存模型循环、工具、审批和事件状态，复用现有 Worker 与扣费事务。
+- 服务端校验画布 / 运行归属、幂等键、三档权限、用户技能快照、有限画布上下文与每轮预算；已开放 `canvas_get_state`、`skill_read_file`、`task_get`、`model_list`、受限 `canvas_apply_ops` 和 `generate_media`。禁止 shell、任意网络请求和外部 MCP。
+- [x] 专项测试覆盖请求校验、越权、预算拒绝、重复提交、可信连续对话、公共任务入口隔离；4 个并发请求仅产生一条任务 / 账单 / 预留流水；模拟上游经真实 Worker 得到并持久化回复。
+- [x] 隔离浏览器通过模拟 Agent 接口完成发送 → 事件流 → 回复 → 已完成；不代表真实模型渠道或登录态联调通过。
+- [ ] 真实登录态验证首轮 / 连续对话 / 取消 / 刷新恢复 / 审批 / SSE 断线重连；压力验证 PostgreSQL 扣费回滚。提交幂等键已按画布和会话持久化，仍需真实浏览器验证响应丢失后的同键恢复。
+- [ ] 原本运行中的旧后端需重新构建或重启加载新路由；本次未重启用户服务、未调用付费上游。
+
+## Agent 浮窗与设置布局
+
+- 聊天列表增加底部跟随：发送后回到底部，内容或窗口尺寸改变时跟随；主动上翻阅读时暂停跟随。相同错误仅合并连续提示，不再吞掉后续发送的失败反馈。
+- [x] 前阶段隔离浏览器模拟 404 连续发送 7 次及上翻后再发送：每次失败可见，最终距底部均为 0；前端构建通过。后端实现的验收边界见上节。
+- 入口改为静态简洁按钮；桌面端支持拖动标题移动、上边缘 / 左边缘 / 左上角调整大小，位置与尺寸保存为浏览器 UI 偏好。窄屏使用全宽布局。
+- 设置与 Skills 子页收缩边界、长文换行和内部滚动已调整；修正技能搜索及全选，模型选择仅保留一个图标，输入框移除聚焦位移。
+- MCP 不再显示未经验证的连接成功状态。Agent 错误按 HTTP 状态呈现，不再根据错误文案断言系统模型渠道仍启用。
+- [x] 专项测试：窗口几何与恢复、错误语义、会话缓存、资源引用输入，共 23 项通过。
+- [x] 隔离组件浏览器验证：拖动 / 缩放 / 刷新恢复、Skills 搜索全选、明暗主题和 375px 窄屏无横向溢出、输入聚焦不位移。使用模拟接口，不代表后端联调通过。
+- [ ] 登录真实画布验收入口、设置、详情、输入及窗口偏好；检查画布缩放和快捷键不干扰浮窗。
+- [ ] 真实 Agent 运行、工具写入、媒体生成与 SSE 重连待联调；当前专项测试使用模拟模型和本地数据库，不替代真实上游验收。
+
+## 异步视频统一轮询容错
+
+- 声明式视频插件、遗留内置视频协议和 RunningHub 视频工作流统一在创建成功后等待 30 秒首次查询，后续每 30 秒查询；图片、音频和文本协议不受影响。
+- 查询阶段的 HTTP 408/409/425/429/5xx、临时网络错误、断流、渠道槽位或熔断，以及最多连续两次非法 JSON 不再直接结束任务；HTTP 404 和结构化 `task_not_exist` 连续第三次才结束。
+- 结果下载复用同一暂态错误分类，最多尝试 3 次且不重新创建或轮询上游任务。默认视频任务执行窗口由 30 分钟改为 60 分钟；已保存的管理员策略不会被覆盖。
+- [x] `cd backend && go test ./internal/app ./internal/platform -count=1`：通过。
+- [x] `cd backend && go test ./... -count=1`、`go vet ./...`：通过。
+- [ ] 在测试渠道制造一次查询 502，确认任务保持运行、供应商任务 ID 不变，后续查询恢复后正常完成且不重复扣费。
+- [ ] 检查任务日志只出现一次「查询暂时异常」与一次「查询已恢复」，请求明细仍保留每次上游调用。
+- [ ] 让视频下载首次返回 502、第二次成功，确认宿主不重新查询或创建任务；连续三次下载失败时应返回包含供应商任务 ID 的错误。
+- [ ] 将管理员视频超时仍设为旧值的升级环境启动一次，确认保存值保持不变；新安装环境默认显示 60 分钟。
+
+## 画布图片资源缓存链路优化
+
+消除首屏满屏转圈与"一直在下载"：后端图片资源改 30 天磁盘强缓存（`Cache-Control: max-age=2592000`），前端内存防抖 IndexedDB 元数据写入、O(1) 淘汰预检、并发下载 4→16，视口内远程图片直链首帧上屏（走原生磁盘缓存秒开），Blob 缓存后台平滑升级。已编译通过，需浏览器最终确认：
+
+- [ ] 打开含 50+ 张图片的大画布（如无限画布 1）：图片不再全屏长时间转圈，视口内图片在 200ms 内显示（浏览器原生缓存或网络秒级完成）。
+- [ ] 刷新页面后再次打开同一画布：单张图片耗时 ≤4ms（from disk cache），无网络请求。
+- [ ] 监视器 Console Network 选项卡：图片资源响应头为 `Cache-Control: private, max-age=2592000`；HTTP 304 不再出现（本地磁盘命中无需 If-None-Match 验证）。
+- [ ] 超大画布（200+ 图片）冷启动后，并发下载队列在 1~2 轮完成（不再串行 20+ 秒排队）。
+- [ ] 切换不同画布、打开多个标签页均无 IndexedDB 阻塞卡顿（touchCacheMeta 内存防抖 + evictFor O(1) 预检生效）。
+- [ ] 视频资源仍保持 `Cache-Control: private, no-cache`（每次播放仍需校验服务端 ETag）。
+
+## 后端业务域拆包
+
+- `internal/service` 只保留别名（4 个文件）。组合根和未拆出实现在 `internal/app`。已抽出域：`kernel`、`platform`、`skills`、`prompts`、`auth`、`canvas`、`assets`、`outbound`、`generation`。handler 仍只打 `*service.Service`。
+- [x] `cd backend && go test ./internal/kernel/ ./internal/platform/ ./internal/skills/ ./internal/prompts/ ./internal/auth/ ./internal/canvas/ ./internal/assets/ ./internal/handler/ -count=1`
+- [x] `cd backend && go build ./internal/service/ ./internal/handler/ ./cmd/server/`
+- [ ] 登录后打开技能库：列表、加入、GitHub/ZIP 安装、内置技能正文仍可用。
+- [ ] 管理后台提示词模板、用户风格库、画布按项目画风生成仍走原接口。
+- [ ] 注册、登录、邮件验证码、密码重置、Linux.do 登录仍走原 Cookie 接口。
+- [ ] 公开画布分享链接仍能打开，分享资源 URL 不泄露密钥和任务字段。
+- [ ] 登录后画布库分页、按 ID 读素材、上传/替换用户素材仍走原接口。
+
+## 固定分辨率图片模型
+
+- 比例协议未配置质量参数时，图像设置按管理员启用的尺寸档位显示；未启用的档位仍隐藏。
+- 选中档位会写入 `1k` / `2k` / `4k`；Gemini 图片由官方插件 `google-gemini-image` 映射为上游 `1K` / `2K` / `4K`，业务层不再手写组包。插件优先读 `quality`，画布残留的视频 `vquality`（如 `720`）不能盖掉 4K。
+- [ ] 选 4K 后抓上游请求，确认 `generationConfig.imageConfig.imageSize` 为 `"4K"`，且没有 `candidateCount` 被误写成视频清晰度 `720`。
+- 前台模型从系统模型同步 `imageSize` 预设和 `aspect_ratio` 参数；旧前台快照会从供应线路补回档位，不再把 1K/4K 压成只有 1K。未启用的 1K 不能因为协议默认 `low/medium/high` 出现。未声明 `quality` 的前台模型不能因选 4K 档位报“不支持参数 生成质量”。
+- [ ] 系统模型启用 1K+4K 全尺寸后，打开对应前台模型：画布图像设置应同时出现 1K 和 4K。
+- [ ] 保存同时启用 1K 和 4K 全尺寸、且未配置质量参数的模型后，画布图像设置应同时出现 1K 和 4K，切换档位后参考像素跟着变。
+- [ ] 保存仅启用 4K 的模型后，在画布重新选择该模型，确认只显示 4K，切换比例和重新打开面板仍保持 4K。
+- [ ] 实际生成后确认上游模型输出分辨率；面板参考尺寸不保证上游实际像素。
+
+## HTTP API 错误码与 OpenAPI
+
+- 路径仍是 `/api`。不做 `/api/v1` 双挂；前后端一起发布。
+- 失败信封增加 `reason`。配额是 HTTP 403 / `code` 40301 / `reason=quota_exceeded`，不再用 400。限流是 429 / 42901 / `rate_limited`。
+- `GET /api/openapi.yaml` 提供 OpenAPI 3.0。不要生成 TS 客户端替换 `http`。
+- [x] `cd backend && go test ./internal/handler/ ./internal/service/ ./cmd/server/ -count=1`
+- [x] `cd web && bun test test/api-request.test.ts`
+- [ ] 登录后走素材库、画布、任务中心：Cookie 仍有效，请求仍打 `/api/...`。
+- [ ] 打开已有图片/视频资源 URL（`/api/resources/.../file`）仍能加载。
+- [ ] 文本任务 SSE 与系统渠道流式仍逐条到达。
+- [ ] 账号配额打满时前端能用 `reason === "quota_exceeded"` 区分，而不是当可重试 429。
+
+## JSON 字符串类型与素材写入合同
+
+- 上游 JSON 不再把数字/布尔伪装成空字符串。`optionalJSONString` / `requireJSONString` / `firstJSONString` 在字段类型错误时返回 `expected string, got T`。视频 / 音频 / 声明式协议的任务 ID 走这条路径。
+- `stringField` 仍用于可选查找（status、error.message、SSE 增量）。缺字段或类型错误对该键视为空，避免异构上游把整段解析打爆。
+- 用户库素材写入强制 `kind`、`coverUrl`、`tags`（字符串数组）和按类型完整的 `data`。前端 `parseAssetRecord` 拒绝不完整记录，素材库页不再读时 `normalizeAssetRecord`。
+- 已入库、缺 `tags` 或 `data` 的历史 payload：GET 仍原样返回；登录快照或素材库分页会解析失败。没有读时补丁，需要重新保存或清洗。
+- [x] `cd backend && go test ./internal/service/ -count=1`
+- [x] `cd web && bun test test/asset-record.test.ts test/asset-storage-revision.test.ts test/user-scoped-generation-persistence.test.ts`
+- [ ] 上传/生成一条完整素材后刷新：素材库、画布引用、跨端同步仍可用。
+- [ ] 用数字 `id` 的视频/音频上游（若有）应看到类型错误，而不是“没有返回任务 ID”。
+- [ ] 本地 IndexedDB 若仍是缺 `tags` 的旧缓存，打开素材库应失败而不是 tags 变成 `[]`。
+
+## 巨型文件按能力/容器拆分
+
+- `provider.go` 只保留调度、水合和共享类型。文本 / 图片 / 视频遗留 / 音频 / HTTP / 声明式协议分别在 `provider_text.go`、`provider_image.go`、`provider_video.go`、`provider_audio.go`、`provider_http_client.go`、`provider_protocol.go`。未导出函数仍同包，测试无需改 import。
+- 画布助手：容器 `canvas-assistant-panel.tsx`；展示层 `canvas-assistant-panel-views.tsx`；`onlineToolToOps` 在 `canvas-assistant-online-tools.ts`；影视续写边界在 `canvas-cinematic-continuation.ts`。测试仍从面板文件 re-export 取值。
+- 创作页：`create/index.tsx` 只做提交和会话状态；历史抽屉、Composer、消息视图在 `creation-workspace.tsx`。
+- 画布页时间线入轨从 `project.tsx` 抽到 `use-canvas-timeline-asset-insert.ts`。页面仍装配工作区 JSX。
+- [x] `cd backend && go test ./internal/service/ -count=1`
+- [x] `cd web && bun test test/generation-task-local.test.ts test/user-scoped-generation-persistence.test.ts test/generation-task-materializer.test.ts test/create-library-button.test.ts test/create-canvas-handoff.test.ts`
+- [ ] 画布在线助手：发一条会改画布的指令、确认工具、影视项目续写/刷新恢复，行为与拆分前一致。
+- [ ] 创作页空态/对话流、历史抽屉重命名删除、素材库插入仍可用。
+- [ ] 画布时间线弹窗内从素材库/项目资产插入音视频仍直连入轨；图片仍提示先插入画布。
+
+## 前端 HTTP 与产品浮层壳
+
+- 业务 JSON 模块统一走 `http.get/post/put/patch/delete`，不再写 `request(apiClient.*)`。CSV / 诊断包 zip 走 `http.raw`。资源 404 缓存认 `ApiError.status`，不再看已经解包后的 axios 错误。
+- image / video / audio 渠道请求经 `createChannelTransport`；语音合成走 `postBlob`，避免把音频当 JSON 解析。
+- 自带外壳的产品弹窗改用 `AppModal flush`；技能编辑和管理员用户详情改用 `AppDrawer`。不要再复制 `padding: 0` 的 Modal styles。
+- [x] `cd web && bun test test/api-request.test.ts test/http-ownership.test.ts`
+- [ ] 登录后打开素材库、画布上传、风格选择、技能详情、渠道模型编辑：弹窗主题、关闭、内部滚动与改造前一致。
+- [ ] 上传资源、导出管理日志 CSV、导出诊断包：仍走同一登录 Cookie，失败文案可读。
+- [ ] 用音频渠道生成一条语音：应得到音频，而不是 JSON 解析错误。
+
+## 产品 LLM 任务收进官方提示词目录
+
+- 短剧一句话生成和技能库 AI 草稿不再把整段指令写在页面里。前端只传 `promptTemplateOperation` 与变量；服务端按启用模板 + 用户偏好编译，并校验 JSON 契约 `short-drama-outline/v1` / `skill-draft/v1`。
+- 画布预设、反推提示词、工作流起步稿、文本改写、视频操作包装、字幕高亮指令集中在 `web/src/lib/prompts`。在线 Agent 系统提示词和读写工具名单集中在 `canvas-agent-protocol` / `canvas-agent-tools`，在线写门控与本地日志分类共用同一份读工具列表。
+- 批改管线、提示词优化器、肖像比对等插件内指令仍留在各自模块，下一刀再收。
+- [x] `go test ./internal/service/ -run 'TestPromptOperationCatalog|TestRenderShortDrama|TestValidatePromptTemplateResultShortDrama|TestValidatePromptTemplateResultSkillDraft|TestValidatePromptTemplateResultCharacter' -count=1`
+- [x] `cd web && bun test test/prompt-catalog-ownership.test.ts test/canvas-agent-workflow.test.ts`
+- [ ] 重启后端后，设置 → 提示词偏好和管理后台提示词模板应出现「短剧大纲」「技能草稿」。改平台默认或用户追加后，项目页一句话生成和技能草稿应吃到新文案，JSON 结构仍能导入章节 / 填入编辑器。
+- [ ] 在线画布助手仍先读上下文再写；本地助手只读工具日志分类不变。画布预设、反推提示词、工作流缺省 prompt 文案与改造前一致。
+
+## 最小 ESLint 只锁已退场的 AntD API
+
+- `web` 增加 `bun run lint`。不是风格检查：只禁止再 `import { Empty } from "antd"`，以及静态 `Modal.confirm(`。
+- 解析器用 `@babel/eslint-parser` + TypeScript preset。`typescript-eslint` 8 在仓库的 TypeScript 7 上会直接拒绝启动，所以没有用它。
+- CI Quality / Web checks 在 typecheck 之后跑 `bun run lint`。
+- [x] `cd web && bun run lint`：通过。
+- [ ] CI 确认 Web checks 出现 lint 步骤且现有 PR 能过。
+
+## web / canvas-agent 只认 bun.lock
+
+- 删除遗留的 `web/pnpm-lock.yaml` 和 `canvas-agent/pnpm-lock.yaml`。同一套 `node_modules` 被 pnpm 覆盖过，会把 Tiptap 和 `lightningcss` 装成两套版本。
+- `web/package.json` 去掉仅给 pnpm 用的 `overrides` 副本，并声明 `packageManager: bun@1.3.9`。仓库内 Canvas Agent 安装/构建改写为 `bun install` / `bun run build`；对外仍用 `npx -y @ddcat666/open-ai-canvas-agent`。
+- CI 在 `bun install --frozen-lockfile` 之前拒绝 `pnpm-lock.yaml` / `package-lock.json` / `yarn.lock`。
+- [x] `bun test test/package-manager-lockfile.test.ts`。
+- [ ] 干净目录执行 `cd web && bun install --frozen-lockfile` 与 `cd canvas-agent && bun install --frozen-lockfile`，不要再用 pnpm/npm 装前端依赖。
+
+## 确认框与空态退场静态 API
+
+- 命令式确认不再使用静态 `Modal.confirm`（拿不到 App 主题和上下文）。画布取消任务、方舟素材上传、任务中心删除本机记录改为 `App.useApp().modal.confirm`。行内危险操作仍用 `Popconfirm`。
+- 全库最后一处 AntD `Empty`（渠道排序弹窗）改为 `EmptyState`。插件中心筛选空态和提示词偏好空列表也接到 `EmptyState`。工作区整页空态仍用 `WorkspaceState`（信号图标），画布引导空态保持产品专用实现。
+- [x] `bun test test/ui-kit-retirement.test.ts test/channel-presentation.test.tsx test/plugin-state-switch.test.ts`。
+- [ ] 画布取消进行中任务、上传到方舟素材库：确认框明暗主题与页面一致，确认后仍执行原操作。
+- [ ] 任务中心删除本机记录：确认框主题正确，只删本机记录不删素材。
+- [ ] 管理后台渠道「设置排序」在无条目时显示 EmptyState；插件中心清空筛选后的空态可点「清除筛选」。
+
+## 后端 Service 域边界试点（generation / outbound）
+
+- 目标：横向按业务域拆包；handler 仍依赖 `*service.Service` 组合根，域包禁止 import `service`。
+- 本轮已落地：`internal/outbound`（SSRF/出站 HTTP）、`internal/generation`（Engine + Deps 端口 + 官方协议注册表运行时）。`service` 通过薄包装再导出。
+- `provider_*` 执行簇仍在 `service`（与编排水合/计费耦合深），后续按 Engine 端口继续迁入 generation。
+- [x] `go build ./internal/generation/ ./internal/outbound/ ./internal/service/`
+- [x] `go test ./internal/generation/ ./internal/outbound/ ./internal/protocol/ -count=1`
+- [x] `go test ./internal/service/ -count=1`：完整 service 回归。
+- [ ] 任选一条图片或视频生成，确认官方插件路径与结果落库仍正常。
+- [x] `go list` 确认 `internal/generation` 的 import 不含 `internal/service`。
+
+## 官方图片 / 音频 InterfaceType 只走声明式插件
+
+- `runImageTask` / `runAudioTask` 对白名单官方接口只走声明式插件：`ensureOfficialProtocolAdapter` → declarative；未安装时报「…插件未安装」，不再回退手写组包。
+- 图片白名单：`openai-image`、`grok-image`、`volcengine-ark-image`、`volcengine-jimeng-image`、`gemini-image`。音频白名单：`openai-audio`、`async-audio`。
+- 已从 Builtins 移除对应 host adapter；真相源为 `plugin-packages/*.yingce-plugin`（含新建 `openai-audio` / `async-audio`，以及重写的 openai-images / grok / ark / jimeng）。
+- 表达式引擎补 `$divide`（配合 `$split` / `$toFloat`）；同步音频支持 `BinaryPayload`。
+- [x] `go test ./internal/protocol/ ./internal/service/ -count=1`：协议与 provider 回归。
+- [ ] 用 OpenAI Images（generations + edits）、Grok Images、方舟 Seedream、即梦图片、Gemini Image 各跑一条，确认创建与结果落库走对应官方包。
+- [ ] 用 `openai-audio` 同步 speech 与 `async-audio` 异步任务各跑一条，确认二进制 / 轮询结果可播放。
+- [ ] 卸掉对应官方图片或音频插件后再提交同类型任务，应看到「…插件未安装」。
+
+## 官方视频 InterfaceType 只走声明式插件
+
+- `runVideoTask` 对已有官方插件的接口类型不再回退到手写协议。生产注入插件注册表；单测未注入时会补官方包。显式放入空注册表则报「…视频插件未安装」。
+- 覆盖的接口：`minimax-video`、`gemini-veo`、`novita-video`、`newapi-channel-1`、`newapi-channel-2`、`xai-video`、`volcengine-ark-video`、`volcengine-jimeng-video`、`newapi`、`agnes-video`。任务恢复也只查询声明式 adapter，不再回退 `queryNewAPIChannel2VideoTask`。
+- 仍保留的手写路径只有：BaseURL 含 `/api/plan/v3` 的 Ark Plan Seedance，以及模型名含 seedance 的 Seedance `/videos` 遗留；OpenAI multipart / Grok JSON 视频死代码已删。
+- 插件契约与旧手写实现不一致处按插件为准：MiniMax 时长必须 4–15 秒且不再把 `720`/`1440p` 映射成 `768P`/`2K`；Channel 2 不再做 grok 单图/音频校验；xAI 结果 URL 不可达时不再回退 `/videos/{id}/content`；Channel 1 音频 `type` 跟随宿主 role（当前为 `reference_audio`）。
+- [x] `go test ./internal/service/ ./internal/protocol/ -count=1`：通过。
+- [ ] 用 MiniMax / Veo / Novita / NewAPI Channel 1+2 / xAI / 方舟 / 即梦视频各跑一条生成，确认创建、轮询、下载仍走对应官方插件路径。
+- [ ] 卸掉某个官方视频插件后再提交同类型任务，应看到「…视频插件未安装」，而不是静默改走另一套协议。
+- [ ] Channel 2 创建后短暂 `task_not_exist` 仍应延期查询，不要二次创建。
+
+## 列表分页查询改为 page + pageSize
+
+- 业务列表查询不再使用 `page_size`、`project_id`、`folder_id`、`media_type`、`unit_id` 或管理端 `limit`。查询名和分页响应字段统一为 camelCase：`page`、`pageSize`，以及 `projectId` / `folderId` / `mediaType` / `unitId`。
+- 技能库列表信封同步改为 `totalCount`、`hasMore`、`nextOffset`、`pageSize`。技能条目、安装表单、技能包文件与 GitHub 安装请求也已改为 camelCase；`createdAt` / `updatedAt` / `lastCheckedAt` / `lastSyncedAt` 为 RFC3339。内置技能种子文件仍是仓库内部 snake_case，读取后转换成对外合同。
+- Eagle 素材连接器、Dreamina 本地任务和肖像比对仍走对方自己的 `limit`/`offset`，不纳入这次契约。
+- [ ] 登录后翻页素材库、画布库、项目资产、技能库和积分流水，确认请求查询是 `pageSize` 而不是 `page_size`/`limit`。
+- [ ] 管理后台用户、渠道、日志、公告、兑换码、计费、支付订单、对账和存储资源列表翻页正常，响应里是 `pageSize`。
+- [ ] 技能库列表、详情、创建/编辑、ZIP/GitHub 安装：确认接口字段是 `skillId`、`skillName`、`createdAt` 等 camelCase，时间是 ISO 字符串而不是 unix 毫秒。
+- [ ] 画布 @技能 提及和技能运行时仍能解析已加入技能。
+
+## 前端测试改为全目录自动发现
+
+- `web/package.json` 的 `test` 脚本从手工枚举约 100 个文件改为 `bun test`，CI 的 `bun run test` 会跑到此前从未进闸门的用例（含素材弹窗、上传边界、同步文案等）。
+- 打开闸门前修了过时源码快照，以及：无入边时 `@图片1` 可引用节点自身；账号切换中止进行中请求的测试不再因 localforage 缺驱动而误失败。
+- [x] `bun test`：全目录应通过。
+- [ ] CI Quality / Web checks 确认 `bun run test` 覆盖新增文件且无顺序依赖失败。
+
+## 写路径诚实化（存储直传 / 云端同步 / 计费退款 / 转码终态）
+
+- 资源直传失败按 `ApiError.retryable` 分类：401/403/400/413 等永久失败当场抛出；429/5xx 与断网允许退回 IndexedDB，由云端同步用同一幂等键重传。UI 不得把 `pendingRemoteUpload` 说成已保存到服务器。
+- 素材页、素材弹窗还原、批量上传、画布保存在云端同步失败时会排队 `scheduleRemoteUserDataSync`，文案改为「本地已保存，云端同步失败：…将自动重试」。LibTV/TapNow 导入仍只在本地写失败时回滚，云端失败不回滚已写入的节点。
+- 系统渠道代理：退款或待核对写失败会打进程日志；退款失败会转 `uncertain`，避免订单停在 running。空 `billingOrderID` 不再假装退款。
+- 播放转码终态回写失败会重试 3 次并打日志；`mark none` 写失败会恢复内存状态，避免前端把空状态当成 processing 轮询。
+- Responses→Chat Completions 回退只认 404/405/501，不再把 502/503/504 当成“接口不存在”。
+- [x] `bun test test/resource-upload-boundary.test.ts test/user-data-sync-message.test.ts`；`go test ./internal/service/ -run 'TestShouldFallbackTextToChat|TestPersistPlaybackResource'`。
+- [ ] 登录后上传一张图时断开后端：应看到本地已保存+将自动重试，而不是“已保存”。恢复后端后素材应出现在云端。
+- [ ] 用错误密码/过期登录上传：应直接报鉴权失败，文件不应静默进“稍后同步”。
+- [ ] 画布导入 LibTV 后人为让同步失败：节点保留，出现云端失败提示。
+- [ ] 系统渠道明确 4xx 后核对计费订单已退款；退款写库失败时订单应进入待核对。
+
+## 引用素材库弹窗新增媒体类型筛选
+
+- `AssetLibraryPickerModal` 左侧在「分类」之上新增「媒体类型」分组：全部类型 / 图片 / 视频 / 音频（可选文本）。媒体类型在分类之前收窄数据源，左侧分类计数、网格和分页描述同一批素材。
+- 新增 `mediaKinds` prop 声明可选类型，只有一种或调用方已用 `remoteKind` 锁定类型时不展示该分组；新增 item 字段 `mediaKind`，缺省时按本地素材或插件素材的 kind 推断，角色卡这类非媒体条目在筛选生效时不出现。
+- 远端素材库按服务端 `kind` 过滤并重置到第一页；`remoteKind` 仍是调用方的硬约束，媒体筛选不会覆盖它。
+- 各入口传参：创作首页与项目主图沿用默认/图片单类型；画布插入素材、画布项目资产、短剧制造引用个人素材声明含文本的四类；角色三视图与角色声音已由 `remoteKind` 锁定，不展示分组。
+- [x] `bun run typecheck`、`bun test test/canvas-asset-picker.test.ts test/create-library-button.test.ts test/asset-ingest.test.ts test/assets-page-batch-toolbar.test.ts`：23 passed。
+- [ ] 创作首页「参考内容」：切换图片/视频/音频，确认分类计数、网格和分页一致，翻页后筛选保持。
+- [ ] 画布「插入素材」「项目资产」：确认文本类型可筛选，角色卡在筛选非全部时不出现。
+- [ ] 短剧制造「引用个人素材」以及角色三视图/声音绑定：确认前者有媒体类型分组、后两者没有。
+- [ ] 窄屏（≤680px）下左栏横向滚动，媒体类型与分类合并成一排后仍可点选。
+
+## 画布顶栏提示被生成任务面板遮挡
+
+- 现象：画布右上角有进行中任务时，顶栏按钮的悬浮提示被「生成任务」面板压住，文字读不全。
+- 原因：顶栏是 `--z-toolbar`(30) 的绝对定位浮层，会为子元素建立层叠上下文；顶栏提示原来是行内绝对定位、`--dock-tooltip-z`(140) 只在该上下文内生效，实际仍低于 `--z-panel-floating`(80) 的任务面板。提示向下展开的位置又正好落在 `--canvas-topbar-offset`(72px) 的面板顶边。
+- 修复：`CanvasTopBarTooltip` 改用 Ant Design `Tooltip`（portal 到浮层层级），与专注模式工具栏、节点悬浮工具的提示实现一致；底部 dock 的提示向上展开，不受影响，保持原样。
+- 视觉变化：顶栏提示改用全局浮层配色（`--popover`），不再是 dock 提示的自定义样式。
+- [x] `bun run typecheck` 通过。未做浏览器验证：复现需要画布上有进行中的生成任务。
+- [ ] 登录画布并发起一个生成任务，逐个悬停顶栏按钮，确认提示显示在任务面板之上、明暗主题下都可读。
+- [ ] 确认菜单类按钮（画布菜单、导入第三方画布、媒体性能）的下拉仍能正常打开。
+
+## 远端素材未归一化导致的 tags undefined
+
+- 现象：部分素材的 `tags` 是 `undefined`，首页点击「参考内容」时页面报「当前页面没有正常加载，Cannot read properties of undefined (reading 'join')」。
+- 原因：素材在服务端是不透明 payload，早期记录没有 `tags` 字段。本地缓存、登录快照和素材库页面都会走 `normalizeAssetRecord`，但 `user-data-sync` 的 `acceptRemoteAssets`（素材选择弹窗分页、按 ID 拉取引用素材）把服务端原样对象直接写进 store。
+- 修复：`acceptRemoteAssets` 与登录快照都在写入前归一化，并让 acknowledged 基线复用同一份对象。顺带修掉登录时 store 存归一化副本、基线存原始副本导致这些素材被永久标记为待上传的差异。
+- [x] `bun test test/user-scoped-generation-persistence.test.ts test/asset-storage-revision.test.ts test/asset-remote-sync.test.ts test/canvas-asset-picker.test.ts`：58 passed；`bun run typecheck` 通过。
+- [ ] 登录后在首页点击「参考内容」，翻页浏览历史素材，确认不再白屏。
+- [ ] 观察一次同步周期，确认历史素材没有被反复回传服务端。
+
+## 声明式协议插件丢失系统指令
+
+- 现象：短剧「AI 生成章节」报「AI 没有返回有效的章节内容，请重试」。上游请求只带一条 user 消息，要求输出 JSON 的系统指令被丢弃，模型返回散文，前端解析不到章节。
+- 原因：`manifestRequestValues` 构造的 `request.messages` 不包含 `request.instructions`，而 OpenAI 系官方插件（chat-completion、deepseek-chat、atlascloud-chat 等 26 个）只映射 `request.messages`。
+- 修复：宿主在 `request.messages` 前补一条 system 消息（请求本身已有 system 消息时不重复）；`openai-responses` 和 `google-gemini-generate-content` 改为过滤 system 角色，改用各自的 `instructions` / `systemInstruction` 字段，与 `anthropic-messages` 一致。
+- 需要重新打包并重装的官方插件：`openai-responses`、`google-gemini-generate-content`。其余 OpenAI 系插件只需后端升级，无需重装。
+- [x] `go test ./internal/protocol/ ./internal/service/`：通过。
+- [ ] 登录后用 DeepSeek 等 chat-completion 渠道跑「开始一部新短剧 → AI 生成章节」，确认章节正常导入。
+- [ ] Claude、Gemini、OpenAI Responses 渠道各跑一次文本生成，确认系统指令生效且没有重复出现在正文里。
+
+## 画布智能引用
+
+- [ ] 在简洁、专业模式及展开提示词面板中打开智能引用，检查明暗主题、弹层宽度和开关状态。
+- [ ] 输入素材名称、`image1` 或独立序号，按 Tab 和点击候选项均能插入正确引用；关闭 AutoLink 后不再提示。
+- [ ] 一键引用全文保留重复指代，跳过已有引用、重名和“约2秒”等普通文本；无匹配时按钮禁用。
+- [ ] 长提示词滚动、移动光标、中文输入和切换节点后，引用插入位置正确；素材原有双击预览正常。
+
+## 图片节点打光与镜头控制
+
+- 图片节点支持基于原图的打光与镜头控制；确认操作只生成明确的编辑请求，不修改源节点内容。
+- 打光支持光位、俯仰、亮度、光色、轮廓光和预设；镜头控制由声明式参数构建提示词，生成结果保留对应操作元数据。
+- 打光弹窗确认后只创建空图片节点并连到原图，不立刻发起生成；提示词、模型和尺寸可在新节点面板里改完再生成。
+- [ ] 登录画布后分别执行打光与镜头控制，确认新节点、连线、模型配置、失败状态和窄屏菜单行为正确。
+- [ ] 检查明暗主题、键盘焦点、弹窗滚动、复制提示词与自定义模板；确认取消操作不会触发生成。
+- [ ] 点击「生成打光效果」后应出现空图片节点和连线，节点面板可改提示词/模型/尺寸；确认不会立刻进入 loading 或打上游。
+
+## 创作页生成类型胶囊切换
+
+- 创作页 Composer 的生成类型从「图片生成」下拉菜单改为 视频 | 图片 | 文本 三段胶囊切换（`creation-mode-capsule`），选中态使用 `--control-selected-bg/fg` 中性高亮；旧下拉 `creation-mode-picker-menu` / `creation-menu-icon` / `creation-chat-control.is-mode` 样式已删除。
+- 录音时控制行不换行（`:has(> .voice-recording-inline)` 时 `nowrap`），录音条改为可压缩（`flex: 1 1 236px; min-width: 140px`，波形可缩）；≤680px 恢复换行。
+- [ ] 创作页（含首页空态和会话态）确认胶囊明暗主题选中/悬停层次正确、高度与其他控件协调，切换视频/图片/文本后模型选择器与参数菜单仍跟随模式变化。
+- [ ] 录音时右侧模型、清晰度、时长、清空等控件保持在同一行，波形被压缩但不遮挡；窄屏（≤680px）录音时仍可换行不溢出。
 
 ## v1.2.8.rc1 候选版本发布
 
@@ -225,6 +602,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - 22 项相关测试及前端生产构建通过，包含子图普通挂载、选中与展开/收起的组件渲染回归；浏览器已确认本地画布可加载，尚未复验截图中的多图场景。
 - [ ] 人工确认多图生成后的堆叠预览、数量按钮展开/收起、子图点击与拖动、主图切换，以及保存后重新打开画布。已有画布保留用户保存的展开状态。
 
+
 ## PR #426 本地整合验收
 
 - 保留主分支图片尺寸选择器、后台尺寸预设布局、插件分类筛选、文本节点单击编辑、多角度居中弹窗、附件缩略图、站点外观与系统性能页面；接入 PR 的 UI 组件族和创作会话交互。
@@ -247,7 +625,6 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
   - [ ] Select（ui 版）：后台邮件/存储设置、用户编辑抽屉、皮肤主题编辑器、画布页布局切换、项目详情设置、设置页与技能编辑/安装——下拉观感与尺寸、placeholder、暗色模式正常；skill 模板/皮肤阴影下拉值回显正确。
   - [ ] CheckboxGroup（ui 版）：脚本节点右键「显示列」选择器——勾选/反选、列显隐即时生效，无残留 antd 勾选样式。
   - [ ] 已知保留（非本次改动，不判回归）：搜索/多选 Select（约 24 处）与画布 11 处 Segmented 维持 antd，ui 能力缺口补足前不迁移。
-
 ## v1.2.6.rc3 候选版本发布
 
 - 本版本在 rc2 基础上纳入此前未提交的模型编辑弹窗、协议浏览器、后台切页与画布网格源码及相邻回归测试；版本为 `v1.2.6.rc3`，镜像标签为 `1.2.6.rc3`，不覆盖 rc2。
@@ -390,6 +767,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 ## M5（编辑器插件权限执行，fail-closed）
 
+
 - [x] M5.1：`plugin-permission-check.ts` 新建——8 插槽→最小权限表（timeline.read/timeline.command/export.run 三类域）+ `pluginMayRenderEditorSlot`/`assertEditorPermission` fail-closed 判定；测试 10 用例（表完整性/空权限拒绝/未注册拒绝/缺权限拒绝含 missing 域/editor-shell 真实回归 8 插槽可渲染）全绿。
 - [x] M5.2 执行路径接入：editor.tsx SlotStack 渲染前过滤——缺权限插槽不渲染、改显一行诊断条（含缺失域）；editor-shell manifest 权限补全为 timeline.read/timeline.command/export.run；tsc 全绿、全量 bun test 失败集与改动前一致（零新增回归）。边界：宿主全局命令（editor-commands，v1 语义）与宿主 UI 手势不经过此校验，仅 v2 插件插槽贡献与后续 M6 AI 命令代发通道受约束——ADR-0007「v1 权限语义一字不动」。
 - [ ] M5 浏览器验证（待用户确认）：停用/注册一个缺 timeline.command 权限的第三方插件时对应面板被拒渲染并显示诊断；editor-shell 全部 8 面板正常。
@@ -443,11 +821,10 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 用户浏览器 re-test（轨道移除与上传）：hover 轨道行头出现 X，点击移除非最后一条轨道后其与片段消失且可 undo；该 kind 仅剩一条时行头不出现 X；移除轨道后选中片段同步取消；导入超过 50MB 的本地视频不再报 400、可正常入库（见下方分片导入复测）。
 - [x] 本地媒体导入对齐 Concat 分片化：前端 `uploadResourceFile` 超过 50MB 自动切分片上传（8MB/片、失败整传重试、回调进度）；后端新增分片会话三接口 `POST /api/resources/uploads`（开始）、`PUT /api/resources/uploads/:id/chunks/:index`（逐片原始二进制）、`POST /api/resources/uploads/:id/complete`（合并落库，复用 UploadResourceFile 幂等/落盘/探测，保留上传中唯一键 → 提示“上传中请稍候”）；单片上限 8MB 使文件整体不再受 multipart 单请求限制，普通本地视频可导入。
 - [x] 上传默认配额放宽：运行时默认策略 `DailyUploadMB` 200→2048、`StoredFileGB` 2→20（管理员后台仍可调回）；`UploadResourceFile` 经 `reserveChunkedUploadQuota` 豁免单文件大小上限、仅受日/总量约束；`upload_quota_test.go` 对总量文案、daily 上限文案与逻辑按新默认同步，`resource_upload_session.go` 分片会话（内存 TTL 90min、并发/单片限长防护、超总量提前拒绝），新增路由注册测试。
-- [ ] 用户浏览器 re-test（分片导入）：本地选择 >50MB 的视频导入成功并入库（进度可见、失败自动整传重试）；断网重连后重试完成；<50MB 小文件仍走原 multipart 路径无回归；重复导入同一文件命中幂等返回原资源不重复占额度；超日限/总量时提示中文配额文案。
+- [ ] 用户浏览器 re-test（分片导入）：本地选择 `>50MB` 的视频导入成功并入库（进度可见、失败自动整传重试）；断网重连后重试完成；`<50MB` 小文件仍走原 multipart 路径无回归；重复导入同一文件命中幂等返回原资源不重复占额度；超日限/总量时提示中文配额文案。
 - [ ] 用户浏览器 re-test（第 35 条）：媒体面板中导入的素材与项目资产分组显示、筛选 Tab 切换、分组折叠与资产行展开；浅色/深色主题切换后媒体面板配色与编辑面板一致；时间线横跨整个编辑面板宽度，拖动分隔条调整高度正常。
 - [x] 轨道可见/静音开关（Concat 行头对齐）：轨道行头补齐 eye（显示/隐藏轨道）与 volume（静音/取消静音）按钮，与移除 X 三按钮同组（行头加宽 w-40→w-48）；关闭态图标变 accent 色（无背景块），轨道名与片段区随隐藏降透明度；新增 `setTrackFlag` 黄金命令（flag 白名单 visible/muted，golden ops 11→12），隐藏轨道（visible=false）上的片段不再参与监视器预览合成（getClipAtTime 过滤）；新增 3 条单测（目标轨设置且其余不受影响、muted 独立于 visible、未知轨道/flag/非布尔拒绝），输入不可变校验。
 - [ ] 用户浏览器 re-test（轨道可见/静音）：行头 hover 出现三按钮组；点 eye 隐藏轨道后监视器该轨画面消失、轨道行与轨道名变淡、再点恢复；点 volume 静音后图标变 accent（音频在 M4 播放/导出阶段生效）；仅剩一条轨道时无移除 X；以上操作均可一步 undo。
-
 ## 任务预览、文本创作与首屏加载优化
 
 - [x] 任务列表视频改为后端海报字段与前端懒加载图片占位，列表本身不再挂载视频源；后端安全 URL、视频海报专项测试通过。
@@ -693,13 +1070,13 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 
 ## 画布复制粘贴命名
 
-- [x] 节点首次复制粘贴使用“原名称\_copy1”，后续按当前画布已有最大序号递增。
+- [x] 节点首次复制粘贴使用“原名称_copy1”，后续按当前画布已有最大序号递增。
 - [x] 复制已有 `_copyN` 副本时回到原始名称计算，避免生成 `_copy1_copy1`；旧版空格 `Copy` 后缀已有兼容测试。
 - [ ] 在画布中连续粘贴单个节点、多个同名节点和包含子节点的背板，确认名称依次递增且节点关系不变。
 
 ## 画布媒体下载文件名
 
-- [x] 图片、视频和音频下载统一使用“画布名\_节点名\_yyyyMMdd.扩展名”，中文名称和跨平台非法字符已有专项测试覆盖。
+- [x] 图片、视频和音频下载统一使用“画布名_节点名_yyyyMMdd.扩展名”，中文名称和跨平台非法字符已有专项测试覆盖。
 - [x] 扩展名优先按媒体 MIME 类型判断，并兼容远程 URL 后缀；JPEG、WebM 和 MOV 已有专项测试覆盖。
 - [x] 前端 TypeScript 检查与生产构建通过。
 - [ ] 在浏览器中分别下载本地上传、生成结果、LibTV 导入和 TapNow 导入的图片与视频，确认文件名、日期和实际媒体格式一致。
@@ -1047,7 +1424,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 在引导加载期间连续点击“重新开始引导”，再模拟 IndexedDB 写入失败与恢复，确认界面不会永久隐藏或假装推进。
 - [ ] 在窄窗口检查摆场、姿态、动画、摄影机四种模式：标题栏可横向到达，底部属性面板可滚动，时间轴与引导不互相遮挡。
 
-用户确认上述场景后，再将对应条目移动到功能文档的已验证范围。
+ 用户确认上述场景后，再将对应条目移动到功能文档的已验证范围。
 
 ## 模型请求失败日志完整性
 
@@ -1217,7 +1594,6 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 在制作概览点击剧情、资产、分镜、预演、视频、交付和三个快速入口，确认跳转到正确章节及阶段，真实镜头产物数量与完成状态一致。
 - [ ] 在浅色、深色主题和 1280px、1680px 宽度检查镜头卡，确认时长明显、标题与镜头参数不溢出、“已生成”为绿色且选中态仍使用工作台强调色。
 - [ ] 在画布不同缩放和平移位置双击空白处，确认新增节点面板直接打开，选择文本、图片、视频和扩展节点后落点接近双击位置；双击节点、弹窗和其他浮层不应触发新增。
-
 ## 工作台首页创作仪表盘改造
 
 参考模板 Dashboard 将 `/home` 首页重构为创作仪表盘（欢迎区 + 统计卡 + 活跃度/素材图表 + 最近项目表格），以下场景仍需要浏览器确认：
@@ -1255,7 +1631,7 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 ## 上传媒体监视器播放（H.265 播放副本 + 真实播放驱动 + 时长链路）
 
 阶段 C 根治：本地 H.265 原件服务端转 H.264 播放副本（provider=local 专属，无 ffmpeg 则保持原样），
-监视器 <video> 真实播放驱动（不再纯时间码），时间线 transport 与监视器共享，上传携带真实时长。
+监视器 `<video>` 真实播放驱动（不再纯时间码），时间线 transport 与监视器共享，上传携带真实时长。
 代码/单测/编译验证通过（后端 go build/vet/test、前端 tsc 全绿），需浏览器最终确认：
 
 - [ ] 拖入上传的 H.265 视频（92MB 样例，资源 rowid 54/55）到时间线，点播放：画面真实播放、有声音（不再黑屏/静音）；首次 onError 后出现"正在生成兼容版本"提示并轮询，转码完成后自动切 H.264 副本继续播放。
@@ -1284,7 +1660,6 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] 对存在 billing_orders/payment_orders 的用户（生产真实付款场景）点删除：提示「该用户存在资金流水/账单数据，无法彻底删除，请改用停用」。
 - [ ] 删除后审计事件落库（audit-events 页签可见 user.purge）；DB 中 users 行及 auth_sessions/user_identities 等关联行已物理清除。
 - [ ] 既有「停用/重新启用」语义未受影响：停用入口仍走 DELETE /admin/users/:id（保留用户主体），重新启用可用。
-
 ## 画布默认框选与移动期性能优化
 
 - [x] 默认工具改为“区域选择”；空白处左键拖动框选，抓手工具拖动平移。Space + 左键、中键和触控板双指手势保留为导航路径；专项测试、类型检查和生产构建通过。
@@ -1367,11 +1742,11 @@ description: 当前项目已实现功能的手工验证清单与未确认边界
 - [ ] hero 主卡图标瓦片与下方三张快捷卡瓦片大小一致（34px/icon16px）、配色一致（同边框同浅底同 muted 灰），与输入框内「参考」按钮视觉同源。
 - [ ] 悬停任意卡片时瓦片边框/底色/图标色同步亮起；明暗主题切换后瓦片与卡列配色正常（暗色有 rgba 适配不刺眼）。
 - [ ] 主卡与小卡靠主卡 accent 边框与文案层级区分主次，不再靠瓦片尺寸/颜色差异。
-- [ ] 窄屏（<860px）下推荐卡与输入框同步退化为单列自适应，两端仍对齐。
+- [ ] 窄屏（`<860px`）下推荐卡与输入框同步退化为单列自适应，两端仍对齐。
 
 ## 移除页面级任务通知按钮（2026-09-06）
 
-决策：创作页右上「任务通知」按钮（ClipboardList + 未读徽标 + 通知面板）整体移除——任务成败已由会话流内联状态与镜头时间线承担，跨会话查看由「历史对话」抽屉承担，页面级入口冗余。删除范围：CreationNotificationBell 组件、通知推导状态与扫描逻辑、creation-bell-\* 全部样式、空态与工具栏两处挂载；顶栏系统公告铃铛（全局）保留。已实施（tsc 零错误），需浏览器验收：
+决策：创作页右上「任务通知」按钮（ClipboardList + 未读徽标 + 通知面板）整体移除——任务成败已由会话流内联状态与镜头时间线承担，跨会话查看由「历史对话」抽屉承担，页面级入口冗余。删除范围：CreationNotificationBell 组件、通知推导状态与扫描逻辑、creation-bell-* 全部样式、空态与工具栏两处挂载；顶栏系统公告铃铛（全局）保留。已实施（tsc 零错误），需浏览器验收：
 
 - [ ] 空态页右上仅剩「历史」一枚按钮；多轮会话工具栏右侧仅「新建」「历史」；无 ClipboardList 残留图标。
 - [ ] 无任务通知相关 console 报错；生成任务成败仍以消息流内联状态与镜头时间线呈现。
@@ -1387,34 +1762,135 @@ v2（用户反馈首版难看后重做）：菜单改用 antd Dropdown（placeme
 - [ ] 删除走确认弹窗，确认后该行消失；重命名/删除后排序与分组不变；选中行底色可辨。
 - [ ] 明暗主题均无图标错位/文字重叠；无 console 报错。
 
+
 ## AI 消息代码块外壳 B1（2026-09-06）
 
-自研代码块渲染组件 AiMessageCodeBlock（components/ai/ai-message-code-block.tsx，替换 streamdown components.pre 映射，全站消息统一受益）：顶部 34px 工具条 = 左侧语言标签（取自 language-\*，未知显示 code，小号大写等宽）+ 右侧复制按钮（复制成功反馈「已复制」1.6s）；正文滚动容器保留；圆角/边框/底色走 token + color-mix 明暗自适应（容器 r-md、5% 前景底、11% 边框），pre 内透明继承；prefers-reduced-motion 关闭过渡。语法高亮暂缓（调研发现 streamdown@2.5.0 运行时不消费 @streamdown/code 插件，方案待定）。tsc 零错误，需浏览器验收：
+自研代码块渲染组件 AiMessageCodeBlock（components/ai/ai-message-code-block.tsx，替换 streamdown components.pre 映射，全站消息统一受益）：顶部 34px 工具条 = 左侧语言标签（取自 language-*，未知显示 code，小号大写等宽）+ 右侧复制按钮（复制成功反馈「已复制」1.6s）；正文滚动容器保留；圆角/边框/底色走 token + color-mix 明暗自适应（容器 r-md、5% 前景底、11% 边框），pre 内透明继承；prefers-reduced-motion 关闭过渡。语法高亮暂缓（调研发现 streamdown@2.5.0 运行时不消费 @streamdown/code 插件，方案待定）。tsc 零错误，需浏览器验收：
 
-- [ ] 让 AI 回复含多行代码（如 markdown 围栏 `ts`）：代码块顶部有语言标签 + 复制按钮，点复制后变「已复制」，粘贴内容正确（不含语言标记行）。
+- [ ] 让 AI 回复含多行代码（如 markdown 围栏 ```ts```）：代码块顶部有语言标签 + 复制按钮，点复制后变「已复制」，粘贴内容正确（不含语言标记行）。
 - [ ] 代码块圆角/边框/底色在明暗主题均可辨；长代码横向滚动不破版；流式输出中代码块容器稳定不跳动、复制按钮可用。
 - [ ] 消息中的行内代码（如 `const x`）样式不受影响；画布 Agent 消息里的代码块同样获得新外壳。
 
-## 视频插件人工确认合同
+## 影策品牌首页
 
-- 创建草稿、人工确认和复核均校验 schema、版本、状态、原视频引用、指纹、revision 和候选帧；损坏或缺字段的输入返回 `VideoPluginError`，不生成确认快照。
-- 复核按帧 ID、时间和镜头归属一起比对，拒绝交换 ID、修改时间或错配镜头。正常筛选仍按时间排序，确认结果保持独立快照。
-- FrameScript 管理端的用户配置范围与后端对齐。当前同步分支仅迁入插件基础合同，真实插件包、配置表单及保存入口仍待后续迁移；配置权限声明不代表设置页面已接通。
-- [x] `cd web && bun test test/video-review-validation.test.ts test/video-plugin-contract.test.ts`
-- [ ] 迁入真实插件及复核 UI 后，验证恢复草稿、重新选帧、确认和下游分析的完整流程。
-- [ ] 接通配置表单后，验证 FrameScript 地址与参数保存、刷新恢复及用户隔离。
+- 新增 `/welcome` 独立公开首页、六幕电影卷轴、工作台截图切换和创作入口，保留既有工作台路由。
+- 用户已确认品牌名影策，保留 Spring（默认）、Charge、Wing It! 三个素材版本；没有竹影选项或专用素材。
+- 首屏影像背景随滚动渐隐为黑底，返回顶部时恢复；故事章节保留九张电影画面和三张叠字镜头。
+- 来源、作者署名、CC BY 4.0 许可和改编说明见 `/welcome/credits.html`，不将第三方电影素材宣称为影策生成案例。
+- 设计与实现说明：[影策品牌首页](../../../design/story-creation-homepage.md)。
+- [x] 上游基线独立分支的完整前端构建（指定 Go 1.25.0 工具链）、素材与启动清理专项测试通过；生产预览通过 1440px、390px 三版本切换、六幕滚动、非空画布与动画、Charge 视频、历史返回、减少动态效果与署名页检查，无页面异常、资源 HTTP 错误或后端 API 请求。
+- [ ] iOS Safari 真机地址栏变化、长时间浏览帧率与设备发热。
+- [ ] Wing It! 部分低分辨率色彩分镜后续升级为高清成片镜头。
+- [ ] 是否将品牌首页设为根路径入口，由项目维护者另行决定。
 
-## FrameScript 视频插件逻辑层（待 UI 接入验证）
+## 画布生成重试与引用交互修复（2026-09-10）
 
-- 新增受信任宿主媒体解析：仅在 `media.read` 已授予时读取当前账号下的已保存 asset/resource；插件不会获取存储键、素材 URL、账号 ID 或第三方密钥。
-- `VideoPipeline` 使用现有 Plugin Registry 校验启用状态、声明能力和权限。Mock Renderer 仅返回模拟排队任务，用于验证 Video IR 渲染合同，不生成 MP4。
-- FrameScript 准备阶段仅做候选抽帧与可选转录；画面、场景、素材和 Prompt 分析必须带当前的人工确认快照。多宫格逻辑按原画面比例生成预览：竖版默认 5 列、横版/方形默认 3 列；预览不构成确认。当前抽帧检测器为相邻/保留帧像素差异，不包含人物跟踪、姿态、OCR 或专业切镜检测。
-- 新增用户隔离的本地复核检查点和受限 Skill 证据桥接。恢复草稿始终要求重新确认；证据为未核验数据，不能选择 Skill、读取 Skill 文件或触发工具。
-- 尚未接入画布 UI、FrameScript 本机服务端到端联调、真实渲染器或跨设备持久化。
+已修复五处画布契约断点：在线节点重试的任务提交保留重试身份；比例型图片协议切换分辨率时同步实际质量档位；在线 Agent 多图只提交 `resource:<id>` 引用、不再嵌入 Data URL；绘图引用从项目本地绘图仓库恢复缩略图；已连接参考素材支持拖动及左右方向键排序，并同步更新 `@图片N` 等编号。专项测试与前端构建通过，需浏览器验收：
 
-## FrameScript 第 4 批：语义检测器扩展层
+- [ ] 对一个失败的图片、视频或音频节点点「重新生成」，任务中心出现新的排队/运行任务，节点最终随任务进入成功或明确失败状态，不长期停在「正在连接上游」。
+- [ ] 在比例型图片模型中直接点 4K 后立即生成，无需二次点击；摘要与实际请求均为 4K，切换 1K/2K 同理。
+- [ ] 在线 Agent 同时引用多张已上传图片时，请求可进入上游，不再出现 `http: request body too large`；尚未同步的本地图片会在提交前给出明确提示。
+- [ ] 多个绘图节点连接到生成节点后，参考栏显示各自最新缩略图；编辑并保存绘图后重新打开面板，缩略图随 revision 更新。
+- [ ] 用拖动手柄或聚焦后按左右方向键调整参考顺序，标签编号和提示词中的 `@图片N` 同步更新；刷新画布后顺序保持，配置节点承接引用时同样有效。
+- [ ] 明暗主题下拖动手柄、缩略图预览、删除按钮和横向滚动无错位；拖动引用不触发画布节点拖拽。
 
-- 已新增通用 `VideoSemanticDetector` 协议：检测器按时间点返回人物/产品、位移、姿态、景别、镜头运动或字幕变化信号；宿主按时间容差合并到采样帧，并沿用现有综合分数、触发原因和人工复核门槛。
-- 仅显式注入的检测器会执行；当前 FrameScript 本机适配器没有可用语义检测接口，因此不会把人物跟踪、姿态或 OCR 标记为已实现。未提供语义信号时，既有像素/时序检测结果保持不变。
-- [x] `cd web && bun test test/video-frame-detection.test.ts test/video-semantic-detection.test.ts test/video-review-validation.test.ts`
-- [ ] 后续接入真实语义检测器时，分别用人物进出、姿态/景别、镜头运动、OCR 字幕变化样例验证触发原因与综合分数；不得以静态字段或模型名称冒充检测结果。
+## 全景图工具与查看器增强（2026-09-10）
+
+图片节点工具栏「全景图」先打开配置弹窗再创建节点：弹窗含素材管理（参考图多选/图生模式单选、素材选择器搜索）、提示词合成（内置等距柱状投影约束模板，可展开查看最终提示词并复制）、生成方式（AI 生成/图生全景）、投影方式（720° 球体/360° 环绕）、智能比例兜底说明；配置写入节点 `metadata.panoramaConfig`，参考图节点一并连线。全景查看器新增：顶部工具栏（全屏环视、截图当前视角、导出四向视图、重置视角、退出）、方向键旋转、three.js 按需加载 spinner、投影方式标签；截图走 `preserveDrawingBuffer` 同步重渲染，四宫格临时切方形画幅并带方向标注；全屏为 portal 覆盖层（滚轮调视场角），展开时节点体退回静态预览保证同一时刻只有一个 WebGL 上下文。截图经 `addPanoramaCaptureNode` 上传并在源节点右侧按列错开创建派生图片节点。tsc 零错误，需浏览器验收：
+
+- [ ] 图片节点工具栏点「全景图」：弹出配置弹窗，左侧可加/删参考图（图生模式仅单选），中间提示词与「查看最终提示词」联动，右侧模式切换与说明文案正确。
+- [ ] 确认后在源图右侧创建全景节点并连线，选中且弹出对话节点；图生模式无连线时节点直接显示 `directImageUrl` 源图。
+- [ ] 全景节点点「进入环视」：加载中出现 spinner；拖拽环视、方向键旋转、重置视角正常；节点内滚轮仍归画布缩放。
+- [ ] 工具栏「截图当前视角」与「导出四向视图」：源节点右侧出现派生图片节点（四向视图为 2×2 带方向标注），多次导出按列错开不重叠；导出后视角自动还原。
+- [ ] 「全屏环视」：覆盖层展开，滚轮缩放视场角生效；退出全屏回到节点内环视且视角保留；展开期间节点体显示静态预览。
+- [ ] 分享只读页（未提供导出动作）不显示截图/四宫格按钮，仅保留环视、重置与全屏；明暗主题与性能模式（仅预览）行为不变。
+## 方舟可信素材失败重试与素材库方舟素材 ID（2026-09-11）
+
+后端：方舟可信素材同步失败不再永久缓存——素材组未建成（素材组 ID 与素材 ID 均为空）的失败 binding 下次同步直接重试，素材组已建、素材未建时仅重试创建素材阶段的失败；审核拒绝（ArkAssetID 非空）保持终态；重试复用已建素材组；控制面 HTTP 非 2xx 时透传方舟 ResponseMetadata.Error 的原始 Code/Message（如 SubscriptionRequired），不再统一误报为「模型服务鉴权失败」；管理页 Region 输入补充仅 cn-beijing 开放的说明。前端：素材库编辑弹窗新增「方舟素材 ID」与「人像认证」两个字段（卡片封面显示「人像认证」徽章、详情抽屉显示方舟素材 ID）；方舟视频渠道（volcengine-ark-video 或 Ark Plan BaseURL）生成时，引用图片节点绑定的素材若已录入方舟素材 ID，任务参考图直接提交 `asset://<ID>` 跳过上传同步（后端任务与浏览器直连路径一致）；任务重跑按存储引用还原时会回退到常规上传路径。后端 go test（排除 main 存量失败用例 TestUserAssetsBatchIsBoundedAndScoped 与 protocol 插件清单校验）与前端构建通过，需浏览器验收：
+
+- [ ] 管理页断开网络或把 Region 暂改为 cn-shanghai 后在画布上传方舟素材失败，恢复后再次上传直接发起新请求成功，无需清理数据库 binding 记录。
+- [ ] 套餐未开通等上游 403 场景，上传失败提示包含方舟原始错误码（如 SubscriptionRequired），不再是「模型服务鉴权失败」。
+- [ ] 素材库编辑图片素材：可填写 asset- 开头的方舟素材 ID、勾选人像认证，保存后刷新页面两字段仍在；卡片封面出现「人像认证」徽章，详情抽屉显示方舟素材 ID 标签；非法 ID（不以 asset- 开头）被表单拦截。
+- [ ] 画布图片节点绑定已录入方舟素材 ID 的素材后连接视频节点，用方舟渠道生成：任务参考图为 asset:// 引用、跳过「同步方舟可信素材」；非方舟渠道生成不受影响，仍走原参考图路径。
+## 支付订单用户识别（待验收）
+
+已通过支付页与 API 的 ESLint、15 项后台 UI 回归检查，以及后端身份响应隔离测试和相关包编译。全量前端类型检查仍在未修改的动画、Tooltip 和画布模块报错；数据库搜索专项测试因本机 `CGO_ENABLED=0` 无法执行。尚未进行浏览器视觉验收。
+
+- 核对名称、用户名和邮箱与用户管理一致；同名用户可通过用户名和邮箱区分。
+- 验收用户身份、订单号、渠道交易号和完整用户 ID 查询，与状态过滤、分页组合使用。
+- 验收用户详情、订单详情、订单号复制和用户不存在的历史订单；关闭侧栏保留列表状态。
+- 检查同步状态、关单确认、明暗主题、长文本和窄屏固定操作列。
+## 视频生成显式 @文本 引用内联（2026-09-11）
+
+修复普通模型视频渠道（非声明式工作流）丢弃显式 @文本N 引用内容的问题：`buildComposerGenerationContext` 此前受 `promptOnly` 门槛限制，提示词里的 @文本N 只被改写成「【文本N】」占位标记，文本节点真实内容不追加，导致发给上游的视频提示词只剩无意义占位符（如「任务要求提示词：【文本1】」）。现在显式 @文本 引用始终内联真实内容并在提示词末尾以「【文本N】\n正文」块追加；`promptOnly` 拦截自动上游连线文本的原有语义（提交 8f20240d）不变——未显式引用的连线文本在视频模式下仍不自动拼接，图片仍走结构化参考图通道。提示词超长时按既有校验明确报错，不静默截断。专项测试（canvas-node-generation-mentions.test.ts，新增 3 例）与前端全量测试通过（与 main 基线相比无新增失败），需浏览器验收：
+
+- [ ] 画布视频节点提示词同时 @图片1 和 @文本1（文本节点含多行正文）后用方舟或普通视频渠道生成：抓上游请求，text 为「原提示词 + 【文本1】标记 + 空行 + 【文本1】\n文本正文」，参考图仍为结构化 image_url（方舟素材绑定时为 asset:// 引用）。
+- [ ] 视频节点只连图片和文本节点、提示词不写任何 @ 引用时：text 仍只有输入框原文，连线文本不自动拼入（8f20240d 行为保持）。
+- [ ] 图片、文本、音频模式生成行为不变；显式 @文本 引用的图片节点重试同样内联文本内容。
+- [ ] 引用超长文本（超过模型提示词上限）时提交被拦截并提示具体字符数，不出现静默截断或直接丢弃。
+## 全景图生成弹窗重设计（2026-09-11）
+
+按设计系统重写 `canvas-panorama-config-modal.tsx`：由 1120px 双栏（左步骤表单 + 右侧栏）改为 680px 单栏表单结构，分区依次为生成方式（AntD Segmented）、参考图/源图缩略图行、场景描述（AntD TextArea）、全景类型（双选卡片）、高级选项（智能比例 Switch + 复制完整提示词）；底部固定操作栏含状态提示、取消与主操作按钮，支持 ⌘↵。视觉遵循「默认无边、选中才有 stroke」：未选中项用 `bg-foreground/5` 表面、无描边，选中项用 accent 环线加浅色填充；选图器内选中缩略图为 2px accent 环 + 角标对勾。修复部分缩略图停留在骨架态的问题：缓存图可能在 onLoad 挂载前已完成，新增 ref 挂载时 `complete && naturalWidth` 补检。功能行为（提示词合成、单/多选约束、配置字段、事件）保持不变。前端 `bun run build` 通过，需浏览器验收：
+
+- [ ] 画布图片节点工具栏打开「全景图」弹窗：明暗主题下各分区层级清晰，仅选中项显示 accent 描边；生成方式 Segmented 切换后参考图标题、描述区、底部状态同步变化。
+- [ ] 有画布图片（含视频封面）时从画布添加/搜索/多选参考图，图生模式强制单选；缩略图加载后不再停留骨架态，失败图显示「加载失败」。
+- [ ] 确认生成与图片直出两条路径行为与旧版一致（配置字段、连线、提示词），⌘↵ 快捷提交可用；「复制完整提示词」内容正确。
+- [ ] 680px 弹窗在窄屏（`<768px`）无横向溢出，全景类型卡片换为单列；选图器覆盖层可独立关闭，不误关整个弹窗。
+
+## 云端 Agent Skills 选择与 Token 预算（2026-09-13）
+
+Skills 选择器已扩大为固定高度面板，增加宽松留白、自定义多选状态、250ms 搜索防抖和服务端分页的滚动续载；Agent 输入恢复画布节点 `@` 候选，`/` 选择技能后保留可读技能名，不再显示内部 skill ID 或残留斜杠。Token 计费模型现可进入 Agent，账单会把预授权报价固化为最终扣费上限。前端生产构建、ESLint、29 项相关测试，以及后端 app/repository/database 测试通过，需浏览器和真实计费渠道验收：
+
+- [ ] 在明暗主题、窄窗口和低高度窗口打开 Skills，确认面板尺寸稳定、列表独立滚动、空态不缩高、选中态与焦点清晰。
+- [ ] 在“发现 Skills”连续滚动并搜索，确认每页只请求 20 条、无重复项或并发重复翻页，加入后可立即勾选。
+- [ ] 输入 `@` 选择任意画布节点，再输入 `/` 选择技能，确认编辑器显示节点引用和不带 `/` 的 Skill 标签，提交请求同时携带正确节点上下文与 skillId。
+- [ ] 使用 Token 计费文本模型运行 Agent，确认不再报“仅支持按次定价”，实际 usage 超过预授权估值时最终扣费不超过本轮报价和总预算。
+
+## 云端 Agent 已完成轮次事件流恢复（2026-09-13）
+
+成功任务会按存储配额策略压缩 `tasks.input_json`，旧读取逻辑却依赖其中的 `cloudAgent` 字段校验运行，导致完成后的 `/api/agent/runs/:id/events`、查询及续聊返回 404。现从同一用户的持久化 `cloud_agent_executions.state_json` 恢复并校验运行身份；新轮次持久化幂等指纹与历史，旧轮次可读取和续聊（旧记录缺少指纹时不接受复用幂等键）。后端专项测试覆盖压缩后的查询、隔离、幂等与续聊。需更新后端进程并验收：
+
+- [ ] 对已完成的 Agent 轮次重新打开会话，`GET /api/agent/runs/:id` 和 `GET /api/agent/runs/:id/events` 不再返回 404，事件流正常结束。
+- [ ] 在该轮次后继续发送消息，可接续原对话且不重复创建画布任务；跨账号读取仍被拒绝。
+
+## 云端 Agent Skill 引用展示修复（2026-09-13）
+
+`/` 仅作为 Skill 选择命令，不再渲染到编辑器 Skill 标签；发送后的用户消息将 `@[skill:<id>]` 映射为图标 + Skill 名称标签，历史标题也不会暴露内部 Skill ID。请求体仍保留稳定 token，供后端按 `skillId` 固定版本。需浏览器验收：
+
+- [ ] 输入 `/` 选择 Skill，编辑器和发送后的消息均显示图标 + 名称，不显示 `/`、内部 ID 或乱码；刷新会话后显示保持一致。
+
+## 云端 Agent 工具消息用户化（2026-09-13）
+
+工具事件在聊天中改为结果摘要：`skills_load` 显示「已成功加载 N 个 Skills 技能」，画布读取、Skill 资料读取、画布更新和生成任务分别显示自然语言结果；隐藏内部工具名、蓝色扳手时间线、重复状态文案和 JSON 展开入口。处理中状态改为紧凑的脉冲提示。需浏览器验收：
+
+- [ ] 运行包含 Skill 和画布读取的 Agent，确认只显示用户可理解的成功摘要，不出现 `skills_load`、`canvas_get_state`、`工具调用`、`工具执行成功` 或 JSON 展开内容；工具列表间距紧凑且明暗主题可读。
+
+## 云端 Agent 审批卡片与提交反馈（2026-09-13）
+
+审批卡片改为无左侧竖杠的中性确认面板：根据待审批参数摘要展示新增/修改节点数量和标题，不展示内部工具名或正文；“同意执行”使用蓝色主按钮，拒绝理由默认收起。审批使用独立提交状态，不再被整轮消息的 `busy` 锁住；请求 15 秒超时后读取服务端决定以辨别成功或保留可重试状态，SSE 刷新不再覆盖输入中的拒绝理由。前端构建、摘要测试及后端压缩任务输入后的审批专项测试通过，需浏览器验收：
+
+- [ ] 在真实待审批轮次点击“同意执行”，按钮可立即响应，后端接受后卡片消失、画布修改发生；快速重复点击不重复执行。
+- [ ] 拒绝理由输入期间 SSE 刷新不清空文字；拒绝可提交；接口超时或失败时按钮恢复可点击并给出明确错误，不无限转圈。
+- [ ] 明暗主题及窄面板下卡片无左侧竖杠，蓝色按钮、节点摘要、焦点与禁用态可辨识。
+
+## 云端 Agent 可靠性第一阶段收尾（待生产等价容量验收）
+
+本轮补齐了 Agent 运行控制字段和后台收尾：取消 / 失败不再依赖大段运行 JSON 才能落库，`cleanupPending` 会由相同的 HTTP 与 Worker 收尾路径恢复；迁移 v14 会按 100 条批量回填旧运行，遇到损坏运行记录会中止并回滚，不静默遗留不可恢复任务。调度改为带游标的公平分页，避免前 50 条长期等待时后续就绪运行完全饥饿。
+
+SSE 现在按 revision 变化发送紧凑快照，无变化只 heartbeat；客户端具备游标去重、确定性 4xx 立即停止、429 `Retry-After`、建连 / 心跳超时、抖动退避和有限失败预算。Agent admission 请求先保存原正文和幂等键，响应不确定时只重放同一请求；收费 provider create 不做盲目 HTTP 重试。聊天续聊会保留失败轮次的用户目标与真实工具事实，并把画布操作记录做成可聚焦节点的消息留痕。
+
+已验证：后端 `internal/app`、`internal/repository`、`internal/database`、`internal/handler` 测试通过；前端 Agent 协议、pending 恢复与相关画布测试通过；前端 build 和 TypeScript 检查通过。新增测试使用临时 SQLite / mock fetch，不调用收费模型，不代表真实容量。
+
+仍待：隔离 PostgreSQL + Redis + mock 上游的 50/100/500 活跃运行压测、多实例断线重连、worker kill/restart、DB/Redis 短暂不可用、接单后响应丢失，以及取消落库后账务 / 上游取消收尾窗口的端到端验收。当前默认 Agent worker 并发和渠道并发仍需按线上资源、模型额度和连接池共同压测，不能据本轮单测承诺 500 用户可接受的 p95 或队列时延。
+
+迁移 v14 发布前备份数据库并先在副本演练；新程序写入的 pending 控制字段不保证旧程序理解，回滚旧程序前必须确认没有待收尾运行。若迁移因损坏运行中止，应先导出并核对该运行及关联任务，再修复或人工处理，禁止跳过校验强行上线。
+
+## 云端 Agent 审批拒绝与节点能力路由（2026-09-15）
+
+已实施，需真实环境验收：
+
+- [x] 审批拒绝改为独立终态 `rejected`，不再把用户决定包装为 `tool_failed`，也不会继续推进模型调用、画布写入、收费生成或扣费；前端展示“已拒绝”并保留可继续对话的上下文。
+- [x] 新轮次首个 system prompt 直接注入由服务端 Capability Registry 生成的节点能力速查，说明轻量节点、媒体节点与分镜脚本的适用场景、限制和维护取舍；模型自主决策，不强制调用能力查询或分镜工具。
+- [x] 审批预览支持创建/修改分镜脚本的操作标签；后端能力校验仍是最终约束。
+- [ ] 真实待审批轮次点击“拒绝”，确认只出现一次“已拒绝本次操作，未写入画布”，没有“更新画布内容失败”或随后“执行失败”，SSE 在 `rejected` 终态正常关闭。
+- [ ] 真实多镜头请求确认 Agent 能基于能力速查选择结构化分镜；单画面快速试验不应被强制创建分镜脚本。

@@ -111,20 +111,19 @@ func (r *Repository) ResourceReferenceSnapshot(userID string, excludingAssetID s
 		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "任务", ID: task.ID, Title: task.Prompt, PrimaryJSON: task.InputJSON, SecondaryJSON: task.ResultJSON})
 	}
 
-	var sessions []model.Session
-	if err := r.db.Select("id", "prompt", "canvas_snapshot_json", "canvas_ops_json").Where("user_id = ?", userID).Find(&sessions).Error; err != nil {
+	var runs []model.CreationRun
+	if err := r.db.Where("user_id = ?", userID).Find(&runs).Error; err != nil {
 		return snapshot, err
 	}
-	for _, session := range sessions {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "会话", ID: session.ID, Title: session.Prompt, PrimaryJSON: session.CanvasSnapshotJSON, SecondaryJSON: session.CanvasOpsJSON})
+	for _, run := range runs {
+		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "创作会话", ID: run.ID, Title: "智能创作", PrimaryJSON: run.StateJSON, SecondaryJSON: run.ApprovedOperationsJSON})
 	}
-
-	var messages []model.Message
-	if err := r.db.Select("id", "content", "payload").Where("user_id = ?", userID).Find(&messages).Error; err != nil {
+	var submissions []model.CreationSubmission
+	if err := r.db.Where("user_id = ? AND revoked_at IS NULL", userID).Find(&submissions).Error; err != nil {
 		return snapshot, err
 	}
-	for _, message := range messages {
-		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "会话消息", ID: message.ID, Title: message.Content, PrimaryJSON: message.Payload})
+	for _, submission := range submissions {
+		snapshot.Documents = append(snapshot.Documents, ResourceReferenceDocument{Kind: "创作执行项", ID: submission.ID, Title: submission.ItemKey, PrimaryJSON: submission.RequestJSON})
 	}
 
 	var taskLogs []model.TaskLog

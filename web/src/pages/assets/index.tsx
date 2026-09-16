@@ -3,16 +3,15 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { App, Button, Drawer, Dropdown, Form, Input, Modal, Popconfirm, Progress, Select, Space, Tag, Typography } from "antd";
 import type { MenuProps } from "antd";
-import { IconButton } from "@/components/ui/base/buttons";
 import { useNavigate } from "react-router";
 
 import { CollectionGrid, ListToolbar, PageHeader, PaginationBar, WorkspacePage } from "@/components/layout/workspace-page";
 import { WorkspaceState } from "@/components/layout/workspace-state";
 import { AssetMediaPreview } from "@/components/asset-media-preview";
 import { AssetLibraryCard, AssetLibraryCardMedia } from "@/components/assets/asset-library-card";
+import { Switch } from "@/components/ui/base/switch";
 import { saveAs } from "file-saver";
 import { cn } from "@/lib/utils";
-import { normalizeAssetRecord } from "@/lib/asset-storage-revision";
 
 import { useCopyText } from "@/hooks/use-copy-text";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -24,7 +23,7 @@ import { uploadMediaFile } from "@/services/file-storage";
 import { flushAssetStorePersistence, useAssetStore, type Asset, type AssetCategory, type AssetKind, type ImageAsset } from "@/stores/use-asset-store";
 import { exportAssets, readAssetPackage } from "./asset-transfer";
 import { AssetStorageUsage, assetStorageUsageQueryKey } from "./asset-storage-usage";
-import { deleteAssetWithRemoteSync, loadAssetLibraryPage, saveRemoteUserDataNow } from "@/services/user-data-sync";
+import { deleteAssetWithRemoteSync, loadAssetLibraryPage, localSavedRemotePendingMessage, saveRemoteUserDataNow } from "@/services/user-data-sync";
 import { useUserStore } from "@/stores/use-user-store";
 import { createAssetFolder, deleteAssetFolder, listAssetFolders, listRemoteAssetsPage, moveRemoteAssetsToFolder, updateAssetFolder, type AssetFolder } from "@/services/api/user-data";
 import { AssetBatchUploadModal } from "./asset-batch-upload-modal";
@@ -42,6 +41,8 @@ type AssetFormValues = {
     source?: string;
     note?: string;
     content?: string;
+    arkAssetId?: string;
+    portraitCertified?: boolean;
 };
 
 type ImageDraft = ImageAsset["data"] | null;
@@ -125,7 +126,7 @@ export default function AssetsPage() {
     });
     const folders = foldersQuery.data?.folders || [];
 
-    const allLibraryAssets = useMemo(() => assets.map(normalizeAssetRecord).filter((asset): asset is LibraryAsset => asset.kind !== "entity"), [assets]);
+    const allLibraryAssets = useMemo(() => assets.filter((asset): asset is LibraryAsset => asset.kind !== "entity"), [assets]);
     const activeAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status !== "archived"), [allLibraryAssets]);
     const trashAssets = useMemo(() => allLibraryAssets.filter((asset) => asset.status === "archived"), [allLibraryAssets]);
     const validAssets = viewMode === "trash" ? trashAssets : activeAssets;
@@ -164,7 +165,7 @@ export default function AssetsPage() {
         return filteredAssets.slice(start, start + pageSize);
     }, [filteredAssets, page, pageSize]);
     const visibleAssets = useMemo(
-        () => (assetPageQuery.data?.assets || localVisibleAssets).map(normalizeAssetRecord).filter((asset): asset is LibraryAsset => asset.kind !== "entity"),
+        () => (assetPageQuery.data?.assets || localVisibleAssets).filter((asset): asset is LibraryAsset => asset.kind !== "entity"),
         [assetPageQuery.data?.assets, localVisibleAssets],
     );
     const visibleAssetIds = useMemo(() => visibleAssets.map((asset) => asset.id), [visibleAssets]);
@@ -256,7 +257,7 @@ export default function AssetsPage() {
         setImageUploading(false);
         setImageUploadProgress(null);
         setFormKind("text");
-        form.setFieldsValue({ kind: "text", category: "other", folderId: folderFilter !== "all" && folderFilter !== "uncategorized" ? folderFilter : "", title: "", coverUrl: "", tags: [], source: "手动添加", note: "", content: "" });
+        form.setFieldsValue({ kind: "text", category: "other", folderId: folderFilter !== "all" && folderFilter !== "uncategorized" ? folderFilter : "", title: "", coverUrl: "", tags: [], source: "手动添加", note: "", content: "", arkAssetId: "", portraitCertified: false });
         setIsAssetOpen(true);
     };
 
@@ -277,6 +278,8 @@ export default function AssetsPage() {
             source: asset.source,
             note: asset.note,
             content: asset.kind === "text" ? asset.data.content : "",
+            arkAssetId: asset.arkAssetId || "",
+            portraitCertified: asset.portraitCertified === true,
         });
         setIsAssetOpen(true);
     };
@@ -313,6 +316,8 @@ export default function AssetsPage() {
             tags: values.tags || [],
             source: values.source?.trim(),
             note: values.note?.trim(),
+            arkAssetId: values.arkAssetId?.trim() || undefined,
+            portraitCertified: values.portraitCertified || undefined,
             metadata: editingAsset?.metadata || { source: "manual" },
         };
 
@@ -333,8 +338,8 @@ export default function AssetsPage() {
             await saveRemoteUserDataNow();
             await invalidateAssetLibrary();
             message.success(editingAsset ? "素材已更新" : "素材已保存");
-        } catch {
-            message.warning(editingAsset ? "素材已在本地更新，稍后自动同步至云端" : "素材已在本地保存，稍后自动同步至云端");
+        } catch (error) {
+            message.warning(localSavedRemotePendingMessage(editingAsset ? "素材已在本地更新" : "素材已在本地保存", error));
         }
         setIsAssetOpen(false);
     };
@@ -373,7 +378,9 @@ export default function AssetsPage() {
             data: { url: uploaded.url, storageKey: uploaded.storageKey, bytes: uploaded.bytes, mimeType: uploaded.mimeType, fileName: file.name },
             metadata: { source: "manual" },
         });
-        message.success("3D 模型已保存");
+        // 直传失败时文件只落在本机，云端同步会重传；此时不能说成"已保存"。
+        if (uploaded.pendingRemoteUpload) message.warning(`3D 模型已保存在本机，尚未上传到服务器${uploaded.remoteUploadError ? `：${uploaded.remoteUploadError}` : ""}`);
+        else message.success("3D 模型已保存");
     };
 
     const copyAssetText = async (asset: LibraryAsset) => {
@@ -421,8 +428,8 @@ export default function AssetsPage() {
         try {
             await saveRemoteUserDataNow();
             message.success(`已还原素材「${asset.title}」`);
-        } catch {
-            message.warning("已在本地还原，稍后自动同步至云端");
+        } catch (error) {
+            message.warning(localSavedRemotePendingMessage("已在本地还原", error));
         }
     };
 
@@ -437,8 +444,8 @@ export default function AssetsPage() {
         try {
             await saveRemoteUserDataNow();
             message.success(`已还原 ${count} 个素材`);
-        } catch {
-            message.warning("已在本地还原，稍后自动同步至云端");
+        } catch (error) {
+            message.warning(localSavedRemotePendingMessage("已在本地还原", error));
         }
     };
 
@@ -448,8 +455,8 @@ export default function AssetsPage() {
         try {
             await saveRemoteUserDataNow();
             message.success(`已将「${asset.title}」移入回收站`);
-        } catch {
-            message.warning("已移入回收站，稍后自动同步至云端");
+        } catch (error) {
+            message.warning(localSavedRemotePendingMessage("已移入回收站", error));
         }
     };
 
@@ -464,8 +471,8 @@ export default function AssetsPage() {
         try {
             await saveRemoteUserDataNow();
             message.success(`已将 ${count} 个素材移入回收站`);
-        } catch {
-            message.warning("已移入回收站，稍后自动同步至云端");
+        } catch (error) {
+            message.warning(localSavedRemotePendingMessage("已移入回收站", error));
         }
     };
 
@@ -551,7 +558,7 @@ export default function AssetsPage() {
                                         </>
                                     ) : (
                                         <>
-                                            <Button className="library-primary-action" type="primary" icon={<Plus className="size-3.5" />} onClick={openCreate}>
+                                            <Button icon={<Plus className="size-3.5" />} onClick={openCreate}>
                                                 新增素材
                                             </Button>
                                             <Button icon={<Images className="size-3.5" />} onClick={() => setBatchUploadOpen(true)}>
@@ -560,7 +567,7 @@ export default function AssetsPage() {
                                             <Button icon={<FolderOpen className="size-3.5" />} onClick={() => navigate("/plugins/eagle")}>
                                                 Eagle 素材库
                                             </Button>
-                                            <IconButton variant="solid" icon={Download} aria-label="导出全部素材" title="导出全部素材" onClick={() => void exportAllAssets()} />
+                                            <Button aria-label="导出全部素材" title="导出全部素材" icon={<Download className="size-3.5" />} onClick={() => void exportAllAssets()} />
                                             <Dropdown
                                                 trigger={["click"]}
                                                 menu={{
@@ -570,7 +577,7 @@ export default function AssetsPage() {
                                                     ],
                                                 }}
                                             >
-                                                <IconButton variant="solid" icon={FileUp} aria-label="导入素材" title="导入素材" />
+                                                <Button aria-label="导入素材" title="导入素材" icon={<FileUp className="size-3.5" />} />
                                             </Dropdown>
                                         </>
                                     )}
@@ -820,6 +827,14 @@ export default function AssetsPage() {
                         <Form.Item name="tags" label="标签">
                             <Select mode="tags" tokenSeparators={[",", "，"]} placeholder="输入标签后回车" />
                         </Form.Item>
+                        <div className="grid gap-4 sm:grid-cols-2">
+                            <Form.Item name="arkAssetId" label="方舟素材 ID" rules={[{ pattern: /^asset-[A-Za-z0-9-]+$/, message: "请输入 asset- 开头的方舟素材 ID" }]}>
+                                <Input autoComplete="off" allowClear placeholder="asset-…，需为本人或被授权可用的方舟素材" />
+                            </Form.Item>
+                            <Form.Item name="portraitCertified" label="人像认证" valuePropName="checked" extra="标记已通过火山方舟实人认证的真人人像素材">
+                                <Switch aria-label="人像认证" />
+                            </Form.Item>
+                        </div>
                         <div className="grid gap-4 sm:grid-cols-2">
                             <Form.Item name="source" label="来源">
                                 <Input placeholder="手动添加 / 画布 / 任务中心" />
@@ -1142,6 +1157,7 @@ function AssetCover({ asset, selected, isTrash = false, onSelect, onOpen, menuIt
                     {kind ? assetKindLabel(kind) : "素材"}
                 </span>
                 {isTrash ? <span className="assets-cover-badge is-category !bg-amber-500/85 !text-white">回收站</span> : <span className="assets-cover-badge is-category">{assetCategoryLabel(asset.category)}</span>}
+                {asset.portraitCertified ? <span className="assets-cover-badge is-category">人像认证</span> : null}
             </span>
             {clock ? <span className="assets-cover-clock">{clock}</span> : null}
             <input type="checkbox" checked={selected} onClick={(event) => event.stopPropagation()} onChange={(event) => onSelect(event.target.checked)} className="assets-select-check" aria-label={`选择 ${asset.title}`} />
@@ -1369,6 +1385,11 @@ function AssetDrawer({ asset, onClose, onCopy, onDownload }: { asset: LibraryAss
                                 {tag}
                             </Tag>
                         ))}
+                        {asset.arkAssetId ? (
+                            <Tag className="m-0" color="geekblue" title="火山方舟素材 ID，生成视频时可直接 asset:// 引用">
+                                方舟 {asset.arkAssetId}
+                            </Tag>
+                        ) : null}
                         <StorageTag asset={asset} />
                     </div>
                     <div className="asset-archive-facts">

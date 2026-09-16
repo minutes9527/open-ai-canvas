@@ -142,8 +142,12 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			failService(c, err)
 			return
 		}
-		limit, _ := strconv.Atoi(c.DefaultQuery("limit", "200"))
-		resources, err := svc.Resources(user.ID, limit)
+		pageSize, err := parsePositiveQueryInt(c.Query("pageSize"), 200)
+		if err != nil {
+			fail(c, http.StatusBadRequest, err)
+			return
+		}
+		resources, err := svc.Resources(user.ID, pageSize)
 		if err != nil {
 			failService(c, err)
 			return
@@ -290,8 +294,8 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		if delivery.RedirectURL != "" {
-			// CDN 或对象存储直连地址不进入应用缓存，也不作为后续请求的 Referer 泄露。
-			c.Header("Cache-Control", "private, no-store")
+			// CDN 或对象存储直连地址允许安全短期缓存
+			c.Header("Cache-Control", "private, max-age=86400, stale-while-revalidate=3600")
 			c.Header("Referrer-Policy", "no-referrer")
 			c.Header("X-Content-Type-Options", "nosniff")
 			c.Redirect(http.StatusTemporaryRedirect, delivery.RedirectURL)
@@ -307,8 +311,14 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 		if usePlayback {
 			serveETag = etag + ":pb"
 		}
-		// 私有资源允许浏览器保存响应，但每次复用前必须重新鉴权；304 会在读取 OSS 前返回。
-		c.Header("Cache-Control", "private, no-cache")
+		// 资源 ID 内容不可变（上传永远生成新 ID，不会原地覆盖）：图片可以放心交给浏览器
+		// 磁盘强缓存 30 天，大画布二次打开零请求直读磁盘缓存。视频/音频涉及转码副本
+		// 就绪与 Range 语义，保持逐次条件请求（304）。
+		if strings.HasPrefix(resource.MimeType, "image/") {
+			c.Header("Cache-Control", "private, max-age=2592000, stale-while-revalidate=86400")
+		} else {
+			c.Header("Cache-Control", "private, no-cache")
+		}
 		c.Header("ETag", serveETag)
 		c.Header("Accept-Ranges", "bytes")
 		c.Header("X-Content-Type-Options", "nosniff")
@@ -406,18 +416,13 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		if _, paged := c.GetQuery("page"); paged || hasUserAssetPageFilters(c) {
-			page, pageErr := strconv.Atoi(c.DefaultQuery("page", "1"))
-			if pageErr != nil || page < 1 {
-				fail(c, http.StatusBadRequest, service.BadAuthRequest("页码必须是正整数"))
-				return
-			}
-			pageSize, pageSizeErr := strconv.Atoi(c.DefaultQuery("page_size", "40"))
-			if pageSizeErr != nil || pageSize < 1 {
-				fail(c, http.StatusBadRequest, service.BadAuthRequest("每页数量必须是正整数"))
+			page, pageSize, pageErr := parsePaginationQuery(c, 40)
+			if pageErr != nil {
+				fail(c, http.StatusBadRequest, pageErr)
 				return
 			}
 			var folderID *string
-			if value, present := c.GetQuery("folder_id"); present {
+			if value, present := c.GetQuery("folderId"); present {
 				folderID = &value
 			}
 			assets, pageErr := svc.UserAssetsPage(user.ID, page, pageSize, service.UserAssetPageFilter{
@@ -593,9 +598,12 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 			return
 		}
 		if c.Query("page") != "" {
-			page, _ := strconv.Atoi(c.Query("page"))
-			pageSize, _ := strconv.Atoi(c.Query("page_size"))
-			result, pageErr := svc.UserCanvasProjectsPage(user.ID, page, pageSize, c.Query("project_id"), c.Query("q"), c.Query("sort"))
+			page, pageSize, pageErr := parsePaginationQuery(c, 40)
+			if pageErr != nil {
+				fail(c, http.StatusBadRequest, pageErr)
+				return
+			}
+			result, pageErr := svc.UserCanvasProjectsPage(user.ID, page, pageSize, c.Query("projectId"), c.Query("q"), c.Query("sort"))
 			if pageErr != nil {
 				failService(c, pageErr)
 				return
@@ -670,7 +678,7 @@ func RegisterUserDataRoutes(r *gin.RouterGroup, svc *service.Service) {
 }
 
 func hasUserAssetPageFilters(c *gin.Context) bool {
-	for _, key := range []string{"page_size", "kind", "category", "folder_id", "uncategorized", "status", "q"} {
+	for _, key := range []string{"pageSize", "kind", "category", "folderId", "uncategorized", "status", "q"} {
 		if _, present := c.GetQuery(key); present {
 			return true
 		}

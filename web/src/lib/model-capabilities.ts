@@ -1,5 +1,5 @@
 import type { ModelProtocol, ModelProtocolWorkflow } from "@/lib/model-protocols";
-import type { ImageResolutionOption } from "@/lib/image-resolution-tiers";
+import type { ImageResolutionOption, ImageResolutionTier } from "@/lib/image-resolution-tiers";
 
 export type ModelCapabilityConfig = {
     version: number;
@@ -9,6 +9,10 @@ export type ModelCapabilityConfig = {
 };
 
 export type TextCapabilityConfig = {
+    /** Whether the upstream text endpoint accepts SSE streaming responses. */
+    streaming?: boolean;
+    /** Whether the model exposes a user-selectable reasoning/thinking mode. */
+    thinking?: boolean;
     references: {
         promptMaxChars: number;
         maxImages: number;
@@ -104,6 +108,7 @@ function normalizeCapabilityStrings(values: string[]) {
 export function normalizeModelCapabilityConfig(config: ModelCapabilityConfig): ModelCapabilityConfig {
     return {
         ...config,
+        text: config.text ? { ...config.text, streaming: config.text.streaming !== false } : config.text,
         image: config.image
             ? {
                   ...config.image,
@@ -259,6 +264,7 @@ export function defaultImageCapabilityConfig(protocol?: ModelProtocol, model = "
 
 export function defaultModelCapabilityConfig(protocol?: ModelProtocol, model = ""): ModelCapabilityConfig {
     const text: TextCapabilityConfig = {
+        streaming: true,
         // 文本模型的视觉能力必须由管理员明确开启，不能根据模型名猜测。
         references: { promptMaxChars: 32000, maxImages: 0, maxImageBytes: 0, maxVideos: 0, maxVideoBytes: 0 },
     };
@@ -948,10 +954,28 @@ function matchWorkflowValue(value: string, options: string[]) {
 
 export function normalizeImageValue(profile: ImageCapabilityConfig, value: { size?: string; quality?: string; count?: string; transparentBackground?: string }) {
     const size = normalizeImageSizeSetting(profile, value.size);
-    const quality = profile.quality.supported ? (value.quality && profile.quality.values.includes(value.quality) ? value.quality : profile.quality.default || "auto") : profile.quality.default || "auto";
+    const requestedQuality = String(value.quality || "").trim().toLowerCase();
+    // 比例协议的固定分辨率预设没有独立 quality 字段时，UI 仍需把当前比例对应的
+    // 预设档位带入请求。仅在 quality 未声明支持时启用，避免与 auto/low/medium/high
+    // 这组真实图片质量语义混用。
+    const presetTier = !profile.quality.supported ? imagePresetTierForSelection(profile, size) : undefined;
+    const quality = profile.quality.supported
+        ? requestedQuality === "auto" || requestedQuality === "any"
+            ? "auto"
+            : value.quality && profile.quality.values.includes(value.quality)
+                ? value.quality
+                : profile.quality.default || "auto"
+        : requestedQuality === "1k" || requestedQuality === "2k" || requestedQuality === "4k"
+            ? requestedQuality
+            : presetTier || profile.quality.default || "auto";
     const count = String(Math.max(1, Math.min(profile.maxOutputs, Math.floor(Math.abs(Number(value.count)) || 1))));
     const transparentBackground = profile.transparentBackground.supported && value.transparentBackground === "true" ? "true" : "false";
     return { size, quality, count, transparentBackground };
+}
+
+function imagePresetTierForSelection(profile: ImageCapabilityConfig, size: string): ImageResolutionTier | undefined {
+    if (profile.size.parameter !== "aspect_ratio" || !size || size === "auto") return undefined;
+    return profile.size.presets?.find((preset) => preset.ratio === size)?.tier;
 }
 
 export function normalizeImageSizeSetting(profile: ImageCapabilityConfig, value?: string) {

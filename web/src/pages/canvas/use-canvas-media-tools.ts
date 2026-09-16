@@ -7,11 +7,14 @@ import type { CanvasImageMaskEditPayload } from "@/components/canvas/canvas-node
 import type { CanvasImageSplitParams } from "@/components/canvas/canvas-node-split-dialog";
 import type { CanvasImageUpscaleParams } from "@/components/canvas/canvas-node-upscale-dialog";
 import type { CanvasImageAngleParams } from "@/components/canvas/canvas-node-angle-dialog";
-import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
-import type { CanvasVideoFrameParams } from "@/components/canvas/canvas-video-frame-dialog";
 import type { CanvasVideoSegmentParams } from "@/components/canvas/canvas-video-segment-dialog";
+import { buildLightingLabel, type CanvasImageLightingOptions } from "@/components/canvas/canvas-node-lighting-dialog";
+import type { CanvasImageEmotionPayload } from "@/components/canvas/canvas-node-emotion-panel";
+import type { PanoramaGenerateConfig } from "@/components/canvas/canvas-panorama-config-modal";
+import type { CanvasVideoFrameParams } from "@/components/canvas/canvas-video-frame-dialog";
 import { NODE_DEFAULT_SIZE } from "@/constant/canvas";
 import { cropDataUrl, splitDataUrl, upscaleDataUrl } from "@/lib/canvas/canvas-image-data";
+import { isValidGridSplit, layoutGridSplitCells } from "@/lib/canvas/canvas-grid-split";
 import { audioMetadata, imageMetadata, videoMetadata } from "@/lib/canvas/canvas-generation-task-sync";
 import { findAvailableGenerationGroupPosition, imageGenerationChildPosition, imageGenerationGroupSize } from "@/lib/canvas/canvas-generation-layout";
 import { canvasGenerationPromptMetadata } from "@/lib/canvas/canvas-generation-submission";
@@ -29,6 +32,7 @@ import {
 import { fitNodeSize, VIDEO_NODE_MAX_SIZE } from "@/lib/canvas/canvas-node-size";
 import { compositeEmotionImage, emotionGenerationSize, emotionProviderMask, normalizeEmotionPromptForProvider, resolveEmotionEditPlan } from "@/lib/canvas/canvas-emotion";
 import { DEFAULT_PORTRAIT_TEXTURE_SETTINGS } from "@/lib/canvas/canvas-portrait-texture";
+import { IMAGE_PROMPT_REVERSE } from "@/lib/prompts";
 import { createPortraitTextureNode } from "@/lib/canvas/canvas-image-source";
 import { captureVideoFrames } from "@/lib/canvas/canvas-video-frame";
 import { buildVideoFrameNodes } from "@/lib/canvas/canvas-video-frame-nodes";
@@ -36,12 +40,22 @@ import { mergeVideos, type MergeVideoProgress } from "@/lib/canvas/canvas-video-
 import { extractVideoAudio, trimVideoSegment } from "@/lib/canvas/canvas-video-segment";
 import { generationErrorMessage } from "@/lib/generation-error";
 import { modelCapabilityConfigFor } from "@/lib/model-capabilities";
+import { defaultImageParamsForModel } from "@/lib/model-selection";
 import { navigateToSettings } from "@/lib/settings-navigation";
 import { storeGeneratedVideo } from "@/services/api/video";
 import { getMediaBlob, uploadMediaFile } from "@/services/file-storage";
 import { uploadImage } from "@/services/image-storage";
 import { ensureCanvasNodeAsset } from "@/services/project-asset-sync";
 import type { GenerationTask } from "@/services/api/task-center";
+
+function normalizeMaskEditQuality(quality: string | undefined, size: string | undefined) {
+    const value = String(quality || "").trim().toLowerCase();
+    if (value && value !== "auto" && value !== "any") return value;
+    const match = String(size || "").trim().toLowerCase().match(/^(\d+)x(\d+)$/);
+    if (!match) return quality || "auto";
+    const pixels = Number(match[1]) * Number(match[2]);
+    return pixels <= 2_000_000 ? "1k" : pixels <= 4_300_000 ? "2k" : pixels <= 8_294_400 ? "4k" : quality || "auto";
+}
 import { defaultConfig, resolveModelRequestConfig, useConfigStore, useEffectiveConfig, type AiConfig } from "@/stores/use-config-store";
 import { CanvasNodeType, type CanvasConnection, type CanvasNodeData, type ContextMenuState } from "@/types/canvas";
 import type { StartCanvasUploadStatus } from "./use-canvas-upload";
@@ -71,12 +85,6 @@ const NODE_STATUS_LOADING = "loading" as const;
 const NODE_STATUS_SUCCESS = "success" as const;
 const NODE_STATUS_ERROR = "error" as const;
 const NODE_STATUS_IDLE = "idle" as const;
-const IMAGE_PROMPT_REVERSE_PRESET = `请根据参考图片反推一段适合用于 AI 生图的提示词。
-
-要求：
-1. 只输出提示词正文，不要解释。
-2. 覆盖主体、构图、风格、光线、色彩、材质、镜头和氛围。
-3. 尽量写成可直接用于生图模型的完整提示词。`;
 
 export function useCanvasMediaTools({
     projectId,
@@ -106,9 +114,9 @@ export function useCanvasMediaTools({
     const [cropNodeId, setCropNodeId] = useState<string | null>(null);
     const [annotationNodeId, setAnnotationNodeId] = useState<string | null>(null);
     const [maskEditNodeId, setMaskEditNodeId] = useState<string | null>(null);
-    const [splitNodeId, setSplitNodeId] = useState<string | null>(null);
     const [upscaleNodeId, setUpscaleNodeId] = useState<string | null>(null);
     const [angleNodeId, setAngleNodeId] = useState<string | null>(null);
+    const [lightingNodeId, setLightingNodeId] = useState<string | null>(null);
     const [emotionNodeId, setEmotionNodeId] = useState<string | null>(null);
     const [frameDialogNodeId, setFrameDialogNodeId] = useState<string | null>(null);
     const [extractingVideoFramesNodeId, setExtractingVideoFramesNodeId] = useState<string | null>(null);
@@ -117,6 +125,7 @@ export function useCanvasMediaTools({
     const [segmentDialogMode, setSegmentDialogMode] = useState<"audio" | "video" | null>(null);
     const [segmentRunningMode, setSegmentRunningMode] = useState<"audio" | "video" | null>(null);
     const segmentRunningRef = useRef(false);
+    const [panoramaConfigNodeId, setPanoramaConfigNodeId] = useState<string | null>(null);
 
     const resolveImageEditStyle = useCallback((node: CanvasNodeData, prompt: string, config: AiConfig) => {
         try {
@@ -160,7 +169,7 @@ export function useCanvasMediaTools({
         const resultSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Text];
         const centerY = node.position.y + node.height / 2;
         const textNode = {
-            ...createCanvasNode(CanvasNodeType.Text, { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY }, { content: IMAGE_PROMPT_REVERSE_PRESET, prompt: IMAGE_PROMPT_REVERSE_PRESET, status: NODE_STATUS_SUCCESS, fontSize: 14 }),
+            ...createCanvasNode(CanvasNodeType.Text, { x: node.position.x + node.width + gap + textSpec.width / 2, y: centerY }, { content: IMAGE_PROMPT_REVERSE, prompt: IMAGE_PROMPT_REVERSE, status: NODE_STATUS_SUCCESS, fontSize: 14 }),
             title: "反推提示词",
         };
         const resultNode = {
@@ -544,26 +553,87 @@ export function useCanvasMediaTools({
 
     const mergeSelectedVideos = useCallback(() => mergeVideosByIds(Array.from(selectedNodeIdsRef.current)), [mergeVideosByIds, selectedNodeIdsRef]);
 
+    const openPanoramaConfig = useCallback((node: CanvasNodeData) => {
+        setPanoramaConfigNodeId(node.id);
+    }, []);
+
+    const createPanoramaViewerWithConfig = useCallback((node: CanvasNodeData, composedPrompt: string, config: PanoramaGenerateConfig) => {
+        const panoramaSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Panorama];
+        const childId = nanoid();
+        const childNode: CanvasNodeData = {
+            id: childId,
+            type: CanvasNodeType.Panorama,
+            title: `${node.title || "图片"} · 全景`,
+            position: { x: node.position.x + node.width + 96, y: node.position.y },
+            width: panoramaSpec.width,
+            height: panoramaSpec.height,
+            metadata: {
+                prompt: composedPrompt || node.metadata?.prompt,
+                panoramaConfig: {
+                    projection: config.projection,
+                    sourceMode: config.sourceMode,
+                    smartBase: config.smartBase,
+                    directImageUrl: config.directImageUrl ?? null,
+                },
+            },
+        };
+        setNodes((current) => [...current, childNode]);
+        setConnections((current) => {
+            const linkTargets = new Set<string>([node.id]);
+            config.referenceImages.forEach((reference) => linkTargets.add(reference.id));
+            const extraConnections = config.referenceImages
+                .filter((reference) => reference.id !== node.id)
+                .map((reference) => ({ id: nanoid(), fromNodeId: reference.id, toNodeId: childId }));
+            return [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }, ...extraConnections];
+        });
+        setSelectedNodeIds(new Set([childId]));
+        setSelectedConnectionId(null);
+        // 全景节点是纯查看器，创建后不弹提示词面板。
+        setDialogNodeId(null);
+        setPanoramaConfigNodeId(null);
+        message.success(config.sourceMode === "image" ? "已创建全景查看节点" : "已创建全景生成节点");
+    }, [message, setConnections, setDialogNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
+
+    const addPanoramaCaptureNode = useCallback(async (node: CanvasNodeData, dataUrl: string, title: string) => {
+        const image = await uploadImage(dataUrl);
+        const size = fitNodeSize(image.width || 720, image.height || 405);
+        // 已有导出时按列错开，避免多张截图叠在同一位置。
+        const outputCount = connectionsRef.current.filter((connection) => connection.fromNodeId === node.id).length;
+        const childNode: CanvasNodeData = {
+            id: nanoid(),
+            type: CanvasNodeType.Image,
+            title,
+            position: { x: node.position.x + node.width + 96, y: node.position.y + (outputCount % 5) * (size.height + 32) },
+            width: size.width,
+            height: size.height,
+            metadata: { ...imageMetadata(image), prompt: node.metadata?.prompt },
+        };
+        setNodes((current) => [...current, childNode]);
+        setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: childNode.id }]);
+        await persistMediaNodes([childNode]);
+        message.success(`已导出「${title}」`);
+    }, [connectionsRef, message, persistMediaNodes, setConnections, setNodes]);
+
     const splitImageNode = useCallback(async (node: CanvasNodeData, params: CanvasImageSplitParams) => {
-        if (!node.metadata?.content) return;
-        setSplitNodeId(null);
+        if (!node.metadata?.content || !isValidGridSplit(params)) return;
         const pieces = await splitDataUrl(node.metadata.content, params);
-        const gap = 16;
-        const cellWidth = node.width / params.columns;
-        const cellHeight = node.height / params.rows;
-        const startX = node.position.x + node.width + 96;
-        const childNodes = await Promise.all(pieces.map(async (piece) => {
+        const sizedPieces = await Promise.all(pieces.map(async (piece) => {
             const image = await uploadImage(piece.dataUrl);
-            return {
-                id: nanoid(),
-                type: CanvasNodeType.Image,
-                title: `${node.title || "图片"} · 宫格 ${piece.row + 1}-${piece.column + 1}`,
-                position: { x: startX + piece.column * (cellWidth + gap), y: node.position.y + piece.row * (cellHeight + gap) },
-                width: cellWidth,
-                height: cellHeight,
-                metadata: { ...imageMetadata(image), prompt: node.metadata?.prompt },
-            } satisfies CanvasNodeData;
+            return { piece, image, size: fitNodeSize(image.width, image.height) };
         }));
+        const positions = layoutGridSplitCells(
+            { x: node.position.x + node.width + 96, y: node.position.y },
+            sizedPieces.map(({ piece, size }) => ({ row: piece.row, column: piece.column, width: size.width, height: size.height })),
+        );
+        const childNodes = sizedPieces.map(({ piece, image, size }, index) => ({
+            id: nanoid(),
+            type: CanvasNodeType.Image,
+            title: `${node.title || "图片"} · 宫格 ${piece.row + 1}-${piece.column + 1}`,
+            position: positions[index] || { x: node.position.x + node.width + 96, y: node.position.y },
+            width: size.width,
+            height: size.height,
+            metadata: { ...imageMetadata(image), prompt: node.metadata?.prompt, manualSize: true },
+        } satisfies CanvasNodeData));
         setNodes((current) => [...current, ...childNodes]);
         setConnections((current) => [...current, ...childNodes.map((child) => ({ id: nanoid(), fromNodeId: node.id, toNodeId: child.id }))]);
         setSelectedNodeIds(new Set(childNodes.map((child) => child.id)));
@@ -576,13 +646,22 @@ export function useCanvasMediaTools({
     const maskEditImageNode = useCallback(async (node: CanvasNodeData, payload: CanvasImageMaskEditPayload) => {
         if (!node.metadata?.content) return;
         const baseGenerationConfig = buildGenerationConfig(effectiveConfig, node, "image");
+        const selectedModel = payload.generationConfig?.model || payload.generationConfig?.imageModel || baseGenerationConfig.model;
+        const modelDefaults = defaultImageParamsForModel(baseGenerationConfig, selectedModel);
+        const selectedImageProfile = modelCapabilityConfigFor(baseGenerationConfig, selectedModel).image;
+        if (!selectedImageProfile?.references.maskSupported) {
+            message.error("当前图片模型不支持局部重绘蒙版，请选择支持蒙版编辑的模型");
+            return;
+        }
         const generationConfig = {
             ...baseGenerationConfig,
             ...payload.generationConfig,
-            model: payload.generationConfig?.model || payload.generationConfig?.imageModel || baseGenerationConfig.model,
+            model: selectedModel,
             imageModel: payload.generationConfig?.imageModel || payload.generationConfig?.model || effectiveConfig.imageModel,
+            quality: normalizeMaskEditQuality(payload.generationConfig?.quality || node.metadata?.quality || baseGenerationConfig.quality || modelDefaults.quality, payload.generationConfig?.size || node.metadata?.size || baseGenerationConfig.size || modelDefaults.size),
             count: String(payload.generationConfig?.count || 1),
-            size: payload.generationConfig?.size || node.metadata?.size || "auto",
+            // 原图像素尺寸不是模型的输出尺寸合同；非高级设置时使用模型默认尺寸，避免把节点尺寸误发给上游。
+            size: payload.generationConfig?.size || node.metadata?.size || modelDefaults.size,
         };
         if (!isAiConfigReady(generationConfig, generationConfig.model)) {
             navigateToSettings({ continueCreation: true });
@@ -785,6 +864,36 @@ export function useCanvasMediaTools({
         }
     }, [bindGenerationTask, effectiveConfig, finishGenerationRequest, isAiConfigReady, nodesRef, persistMediaNodes, projectId, resolveImageEditStyle, setConnections, setDialogNodeId, setNodes, setRunningNodeId, setSelectedNodeIds, startGenerationRequest]);
 
+    const generateLightingNode = useCallback((node: CanvasNodeData, options: CanvasImageLightingOptions, prompt: string) => {
+        if (!node.metadata?.content) return;
+        const generationConfig = { ...buildGenerationConfig(effectiveConfig, node, "image"), count: "1" };
+        const childId = nanoid();
+        const imageSpec = NODE_DEFAULT_SIZE[CanvasNodeType.Image];
+        const title = buildLightingLabel(options);
+        const source = nodeReferenceImage(node);
+        if (!source) return;
+        const generationMetadata = buildImageGenerationMetadata("edit", generationConfig, 1, [source]);
+        setLightingNodeId(null);
+        setNodes((current) => [...current, {
+            id: childId,
+            type: CanvasNodeType.Image,
+            title,
+            position: { x: node.position.x + node.width + 96, y: node.position.y },
+            width: imageSpec.width,
+            height: imageSpec.height,
+            metadata: {
+                prompt,
+                status: NODE_STATUS_IDLE,
+                generationMode: "image",
+                ...generationMetadata,
+            },
+        }]);
+        setConnections((current) => [...current, { id: nanoid(), fromNodeId: node.id, toNodeId: childId }]);
+        setSelectedNodeIds(new Set([childId]));
+        setSelectedConnectionId(null);
+        setDialogNodeId(childId);
+    }, [effectiveConfig, setConnections, setDialogNodeId, setLightingNodeId, setNodes, setSelectedConnectionId, setSelectedNodeIds]);
+
     const generateEmotionNode = useCallback(async (node: CanvasNodeData, payload: CanvasImageEmotionPayload) => {
         if (!node.metadata?.content) return;
         const baseConfig = buildGenerationConfig(effectiveConfig, node, "image");
@@ -850,6 +959,7 @@ export function useCanvasMediaTools({
 
     return {
         angleNodeId,
+        lightingNodeId,
         emotionNodeId,
         annotationNodeId,
         createImageReversePromptNodes,
@@ -864,6 +974,12 @@ export function useCanvasMediaTools({
         frameDialogNodeId,
         handleSegmentConfirm,
         generateAngleNode,
+        generateLightingNode,
+        openPanoramaConfig,
+        createPanoramaViewerWithConfig,
+        addPanoramaCaptureNode,
+        panoramaConfigNodeId,
+        setPanoramaConfigNodeId,
         maskEditImageNode,
         maskEditNodeId,
         mergeSelectedVideos,
@@ -876,15 +992,14 @@ export function useCanvasMediaTools({
         setFrameDialogNodeId,
         setSegmentDialogNodeId,
         setAngleNodeId,
+        setLightingNodeId,
         generateEmotionNode,
         setEmotionNodeId,
         setAnnotationNodeId,
         setCropNodeId,
         setMaskEditNodeId,
-        setSplitNodeId,
         setUpscaleNodeId,
         splitImageNode,
-        splitNodeId,
         openVideoFrameExtractor,
         openVideoSegmentExtractor,
         upscaleImageNode,

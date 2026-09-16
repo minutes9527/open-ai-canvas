@@ -4,26 +4,21 @@ import { AudioLines, CalendarDays, CheckCircle2, Clock3, CreditCard, ExternalLin
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
+import { EmptyState } from "@/components/ui/product/empty-state";
 import { listRegisteredPlugins } from "@/lib/plugins/plugin-registry";
 import "@/lib/plugins/builtin";
 import { EAGLE_PLUGIN_ID } from "@/lib/plugins/builtin/eagle";
+import { DEFAULT_FRAMESCRIPT_PROMPT_MODEL, DEFAULT_FRAMESCRIPT_TRANSCRIPTION_MODEL, DEFAULT_FRAMESCRIPT_VISION_MODEL, FRAMESCRIPT_VIDEO_ENGINE_ID } from "@/lib/plugins/builtin/framescript-video-engine";
 import { PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimizer";
-import { COMFYUI_PLUGIN_ID, RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
-import { MEDIA_CONVERSION_PLUGIN_ID } from "@/lib/plugins/builtin/media-conversion";
-import {
-    DEFAULT_FRAMESCRIPT_PROMPT_MODEL,
-    DEFAULT_FRAMESCRIPT_TRANSCRIPTION_MODEL,
-    DEFAULT_FRAMESCRIPT_VISION_MODEL,
-    FRAMESCRIPT_VIDEO_ENGINE_ID,
-} from "@/lib/plugins/builtin/framescript-video-engine";
-import { ART_CRITIQUE_PLUGIN_ID } from "@/lib/art-critique/contracts";
+import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
+import { isOfficialApplicationPluginId } from "@/lib/plugins/official-applications";
 import type { PluginManifest, PluginManifestV2, RegisteredPlugin } from "@/lib/plugins/plugin-types";
 import { getEagleLibrary, type EagleFolder } from "@/services/api/eagle";
 import { getSystemChannels, listAdminChannels } from "@/services/api/auth";
 import { fetchPlugins, setUserPluginEnabled, type BackendPlugin, type PluginState } from "@/services/api/plugins";
-import { useAppearanceStore } from "@/stores/use-appearance-store";
-import { modelOptionName, useConfigStore, type ModelChannel } from "@/stores/use-config-store";
 import { refreshSystemChannels } from "@/lib/user-session";
+import { modelOptionName, useConfigStore, type ModelChannel } from "@/stores/use-config-store";
+import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { useUserStore } from "@/stores/use-user-store";
 
@@ -41,7 +36,6 @@ const categoryLabels: Record<string, string> = {
     "usage-observer": "用量观察",
     agent: "智能体",
     "import-export": "导入导出",
-    "video-plugin": "视频引擎",
 };
 
 const surfaceLabels: Record<string, string> = {
@@ -60,7 +54,6 @@ const permissionLabels: Record<string, string> = {
     "asset.upload": "上传素材",
     "generation.run": "调用生成",
     "ai.text": "调用已配置的文本/视觉理解模型",
-    "ai.audio": "调用已配置的语音转写模型",
     "media.read": "读取输入媒体",
     "external.open": "打开外部详情",
 };
@@ -91,6 +84,14 @@ export default function PluginsPage() {
     const systemChannels = useConfigStore((state) => state.config.channels);
     const builtinPlugins = useMemo(() => listRegisteredPlugins(), []);
     const [backendPlugins, setBackendPlugins] = useState<BackendPlugin[]>([]);
+    const [frameScriptAdminChannels, setFrameScriptAdminChannels] = useState<ModelChannel[]>([]);
+    const [frameScriptChannelsLoading, setFrameScriptChannelsLoading] = useState(false);
+    const [frameScriptChannelId, setFrameScriptChannelId] = useState("");
+    const [frameScriptVisionModel, setFrameScriptVisionModel] = useState("");
+    const [frameScriptPromptModel, setFrameScriptPromptModel] = useState("");
+    const [frameScriptTranscriptionModel, setFrameScriptTranscriptionModel] = useState("");
+    const [frameScriptChangeThreshold, setFrameScriptChangeThreshold] = useState(0.32);
+    const [frameScriptSamplingIntervalMs, setFrameScriptSamplingIntervalMs] = useState(400);
     const [backendPluginsLoading, setBackendPluginsLoading] = useState(false);
     const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
     const [detailsPluginId, setDetailsPluginId] = useState<string | null>(null);
@@ -106,14 +107,6 @@ export default function PluginsPage() {
     const [eagleFolders, setEagleFolders] = useState<EagleFolder[]>([]);
     const [eagleFoldersLoading, setEagleFoldersLoading] = useState(false);
     const [eagleFoldersError, setEagleFoldersError] = useState("");
-    const [frameScriptAdminChannels, setFrameScriptAdminChannels] = useState<ModelChannel[]>([]);
-    const [frameScriptChannelsLoading, setFrameScriptChannelsLoading] = useState(false);
-    const [frameScriptChannelId, setFrameScriptChannelId] = useState("");
-    const [frameScriptVisionModel, setFrameScriptVisionModel] = useState("");
-    const [frameScriptPromptModel, setFrameScriptPromptModel] = useState("");
-    const [frameScriptTranscriptionModel, setFrameScriptTranscriptionModel] = useState("");
-    const [frameScriptChangeThreshold, setFrameScriptChangeThreshold] = useState(0.32);
-    const [frameScriptSamplingIntervalMs, setFrameScriptSamplingIntervalMs] = useState(400);
     const sectionRefs = useRef<Record<string, HTMLElement | null>>({});
 
     useEffect(() => {
@@ -161,7 +154,7 @@ export default function PluginsPage() {
         const normalizedSearch = search.trim().toLocaleLowerCase();
         return registeredPlugins.filter((plugin) => {
             const state = pluginStates[plugin.manifest.id];
-            const isApplicationPlugin = backendPluginById.get(plugin.manifest.id)?.management.kind === "application" || isOfficialApplicationPlugin(plugin.manifest.id);
+            const isApplicationPlugin = backendPluginById.get(plugin.manifest.id)?.management.kind === "application" || isOfficialApplicationPluginId(plugin.manifest.id);
             if (user?.role !== "admin" && !features.systemPluginsVisibleToUsers && !isApplicationPlugin) return false;
             const installation = installations.find((item) => item.manifest.id === plugin.manifest.id);
             const enabled = state?.effectiveEnabled ?? Boolean(installation?.enabled);
@@ -205,7 +198,7 @@ export default function PluginsPage() {
     }, [pluginSections, scrollTarget]);
 
     const categoryCounts = useMemo(() => {
-        const visiblePlugins = registeredPlugins.filter((plugin) => user?.role === "admin" || features.systemPluginsVisibleToUsers || isOfficialApplicationPlugin(plugin.manifest.id));
+        const visiblePlugins = registeredPlugins.filter((plugin) => user?.role === "admin" || features.systemPluginsVisibleToUsers || isOfficialApplicationPluginId(plugin.manifest.id));
         const counts: Record<string, number> = { all: visiblePlugins.length, text: 0, image: 0, video: 0, audio: 0, payment: 0, other: 0 };
         for (const plugin of visiblePlugins) {
             for (const section of protocolSectionMeta) {
@@ -252,13 +245,13 @@ export default function PluginsPage() {
                 channels.push(...(result.channels || []));
                 // 系统只读接口可能因价格目录过滤返回空列表；后台渠道接口仍包含完整模型键。
                 if (!channels.length) {
-                    const fallback = await listAdminChannels({ page: 1, limit: 100 });
+                    const fallback = await listAdminChannels({ page: 1, pageSize: 100 });
                     channels.push(...(fallback.channels || []));
                 }
             } catch {
                 // 旧后端没有只读系统渠道接口时，回退到管理员分页接口。
                 try {
-                    const result = await listAdminChannels({ page: 1, limit: 100 });
+                    const result = await listAdminChannels({ page: 1, pageSize: 100 });
                     channels.push(...(result.channels || []));
                 } catch {
                     // 保留已有缓存，保存时仍会阻止选择不存在的渠道。
@@ -288,7 +281,7 @@ export default function PluginsPage() {
     }, [frameScriptChannels, settingsInstallation?.config, settingsInstallation?.updatedAt, settingsPlugin?.manifest.id, settingsPluginId]);
 
     const hasPluginConfiguration = (plugin: RegisteredPlugin) => Boolean(plugin.manifest.configuration?.fields?.length);
-    const canConfigurePlugin = (plugin: RegisteredPlugin) => Boolean(pluginStates[plugin.manifest.id]?.canConfigure) && (hasPluginConfiguration(plugin) || plugin.manifest.id === RUNNINGHUB_PLUGIN_ID || plugin.manifest.id === COMFYUI_PLUGIN_ID);
+    const canConfigurePlugin = (plugin: RegisteredPlugin) => Boolean(pluginStates[plugin.manifest.id]?.canConfigure) && (hasPluginConfiguration(plugin) || plugin.manifest.id === RUNNINGHUB_PLUGIN_ID);
 
     const isPluginEnabled = (plugin: RegisteredPlugin, installation = installations.find((item) => item.manifest.id === plugin.manifest.id)) => pluginStates[plugin.manifest.id]?.effectiveEnabled ?? Boolean(installation?.enabled);
 
@@ -297,7 +290,7 @@ export default function PluginsPage() {
             const next = await setUserPluginEnabled(plugin.manifest.id, enabled);
             setEnabled(plugin.manifest.id, enabled);
             setPluginStates({ ...usePluginStore.getState().pluginStates, [next.pluginId]: next });
-            if (next.pluginId === RUNNINGHUB_PLUGIN_ID || next.pluginId === COMFYUI_PLUGIN_ID) {
+            if (next.pluginId === RUNNINGHUB_PLUGIN_ID) {
                 setRuntimeStatuses({ ...usePluginStore.getState().runtimeStatuses, [next.pluginId]: next.effectiveEnabled ? "enabled" : "disabled" });
             }
             message.success(`${plugin.manifest.name}${enabled ? "已启用" : "已停用"}`);
@@ -328,39 +321,6 @@ export default function PluginsPage() {
         }
         updateConfig(EAGLE_PLUGIN_ID, { baseUrl, autoUploadGenerated: eagleAutoUploadGenerated, generatedFolderId: eagleGeneratedFolderId });
         message.success("Eagle 插件配置已保存");
-    };
-
-    const saveFrameScriptConfig = () => {
-        if (!frameScriptChannelId || !selectedFrameScriptChannel) {
-            message.error("请先关联一个系统渠道；模型列表将从该渠道读取");
-            return;
-        }
-        const availableModels = new Set(selectedFrameScriptChannel.models.map((model) => modelOptionName(model).trim()).filter(Boolean));
-        if (!frameScriptVisionModel.trim() || !frameScriptPromptModel.trim() || !frameScriptTranscriptionModel.trim()) {
-            message.error("请为画面分析、图片提示词和语音转写选择模型");
-            return;
-        }
-        if (![frameScriptVisionModel, frameScriptPromptModel, frameScriptTranscriptionModel].every((model) => availableModels.has(model.trim()))) {
-            message.error("所选模型不属于当前关联渠道，请重新选择");
-            return;
-        }
-        if (!Number.isFinite(frameScriptChangeThreshold) || frameScriptChangeThreshold < 0.01 || frameScriptChangeThreshold > 1) {
-            message.error("候选帧变化阈值必须在 0.01–1 之间");
-            return;
-        }
-        if (!Number.isFinite(frameScriptSamplingIntervalMs) || frameScriptSamplingIntervalMs < 100 || frameScriptSamplingIntervalMs > 2000) {
-            message.error("扫描间隔必须在 100–2000 毫秒之间");
-            return;
-        }
-        updateConfig(FRAMESCRIPT_VIDEO_ENGINE_ID, {
-            channelId: frameScriptChannelId,
-            visionModel: frameScriptVisionModel.trim(),
-            promptModel: frameScriptPromptModel.trim(),
-            transcriptionModel: frameScriptTranscriptionModel.trim(),
-            changeThreshold: frameScriptChangeThreshold,
-            samplingIntervalMs: frameScriptSamplingIntervalMs,
-        });
-        message.success("FrameScript 渠道配置已保存");
     };
 
     return (
@@ -591,21 +551,24 @@ export default function PluginsPage() {
                                 })}
                             </div>
                         ) : (
-                            <div className="plugins-empty-state">
-                                <SlidersHorizontal className="size-7" aria-hidden="true" />
-                                <h3>没有匹配的插件</h3>
-                                <p>试试清空搜索词，或放宽筛选条件。</p>
-                                <Button
-                                    onClick={() => {
-                                        setSearch("");
-                                        setCategoryFilter("all");
-                                        setStatusFilter("all");
-                                        setTrustFilter("all");
-                                    }}
-                                >
-                                    清除筛选
-                                </Button>
-                            </div>
+                            <EmptyState
+                                className="min-h-[260px] rounded-[var(--plugins-card-radius)] bg-foreground/[0.03]"
+                                icon={SlidersHorizontal}
+                                title="没有匹配的插件"
+                                description="试试清空搜索词，或放宽筛选条件。"
+                                action={
+                                    <Button
+                                        onClick={() => {
+                                            setSearch("");
+                                            setCategoryFilter("all");
+                                            setStatusFilter("all");
+                                            setTrustFilter("all");
+                                        }}
+                                    >
+                                        清除筛选
+                                    </Button>
+                                }
+                            />
                         )}
 
                         <Modal
@@ -682,72 +645,20 @@ export default function PluginsPage() {
                                                 </Button>
                                             </div>
                                         </>
-                                    ) : settingsPlugin.manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID ? (
-                                        <>
-                                            <p className="mb-3 text-[var(--fs-micro)] text-foreground/55">Canvas 负责画布中的 FrameScript 工作流，并从系统渠道读取模型；API Key 与模型由系统渠道统一管理。</p>
-                                            <div className="plugin-settings-fields">
-                                                <div className="min-w-0">
-                                                    <label htmlFor="framescript-channel">关联系统渠道</label>
-                                                    <Select
-                                                        id="framescript-channel"
-                                                        aria-label="关联系统渠道"
-                                                        className="w-full"
-                                                        value={frameScriptChannelId || undefined}
-                                                        loading={frameScriptChannelsLoading}
-                                                        placeholder={frameScriptChannelsLoading ? "正在读取系统渠道…" : frameScriptChannels.length ? "选择 Canvas 系统渠道" : "请先在系统渠道中配置渠道"}
-                                                        options={frameScriptChannels.map((channel) => ({ value: channel.id, label: `${channel.name}（${channel.models.length} 个模型）` }))}
-                                                        onChange={(value) => {
-                                                            const nextChannel = frameScriptChannels.find((channel) => channel.id === value);
-                                                            const nextModels = nextChannel?.models.map((model) => modelOptionName(model).trim()).filter(Boolean) || [];
-                                                            setFrameScriptChannelId(value);
-                                                            setFrameScriptVisionModel(nextModels.includes(frameScriptVisionModel) ? frameScriptVisionModel : nextModels[0] || "");
-                                                            setFrameScriptPromptModel(nextModels.includes(frameScriptPromptModel) ? frameScriptPromptModel : nextModels[0] || "");
-                                                            setFrameScriptTranscriptionModel(nextModels.includes(frameScriptTranscriptionModel) ? frameScriptTranscriptionModel : nextModels[0] || "");
-                                                        }}
-                                                        showSearch
-                                                        optionFilterProp="label"
-                                                    />
-                                                    <p>{frameScriptChannels.length ? "API Key 和模型由系统渠道统一维护；这里只选择渠道及其模型。" : "请先前往系统渠道添加并启用一个渠道。"}</p>
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <label htmlFor="framescript-vision-model">画面分析模型</label>
-                                                    <Select id="framescript-vision-model" aria-label="画面分析模型" className="w-full" disabled={!selectedFrameScriptChannel} value={frameScriptVisionModel || undefined} options={frameScriptModelOptions} placeholder="从关联渠道选择模型" onChange={setFrameScriptVisionModel} showSearch optionFilterProp="label" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <label htmlFor="framescript-prompt-model">图片提示词模型</label>
-                                                    <Select id="framescript-prompt-model" aria-label="图片提示词模型" className="w-full" disabled={!selectedFrameScriptChannel} value={frameScriptPromptModel || undefined} options={frameScriptModelOptions} placeholder="从关联渠道选择模型" onChange={setFrameScriptPromptModel} showSearch optionFilterProp="label" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <label htmlFor="framescript-transcription-model">语音转写模型</label>
-                                                    <Select id="framescript-transcription-model" aria-label="语音转写模型" className="w-full" disabled={!selectedFrameScriptChannel} value={frameScriptTranscriptionModel || undefined} options={frameScriptModelOptions} placeholder="从关联渠道选择模型" onChange={setFrameScriptTranscriptionModel} showSearch optionFilterProp="label" />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <label htmlFor="framescript-threshold">候选帧变化阈值</label>
-                                                    <Input id="framescript-threshold" aria-label="候选帧变化阈值" type="number" min={0.01} max={1} step={0.01} value={frameScriptChangeThreshold} onChange={(event) => setFrameScriptChangeThreshold(Number(event.target.value))} />
-                                                </div>
-                                                <div className="min-w-0">
-                                                    <label htmlFor="framescript-interval">扫描间隔（毫秒）</label>
-                                                    <Input id="framescript-interval" aria-label="扫描间隔（毫秒）" type="number" min={100} max={2000} step={50} value={frameScriptSamplingIntervalMs} onChange={(event) => setFrameScriptSamplingIntervalMs(Number(event.target.value))} />
-                                                </div>
-                                            </div>
-                                            <div className="plugin-settings-actions">
-                                                <Button type="primary" icon={<CheckCircle2 className="size-4" />} onClick={saveFrameScriptConfig}>保存配置</Button>
-                                            </div>
-                                        </>
                                     ) : settingsPlugin.manifest.id === PROMPT_OPTIMIZER_PLUGIN_ID ? (
                                         <div className="rounded-[var(--r-md)] border border-border/60 bg-muted/25 px-3 py-3 text-[var(--fs-body)] leading-6 text-foreground/70">
                                             <p>在创作页或图片、视频节点的提示词编辑器中使用“优化”按钮，即可让当前文本模型整理提示词。</p>
                                             <p className="mt-2 text-[var(--fs-micro)] text-foreground/50">插件不会自动覆盖原提示词，只有点击“采用”后才会回填到当前输入框。</p>
                                         </div>
-                                    ) : settingsPlugin.manifest.id === RUNNINGHUB_PLUGIN_ID || settingsPlugin.manifest.id === COMFYUI_PLUGIN_ID ? (
+                                    ) : settingsPlugin.manifest.id === RUNNINGHUB_PLUGIN_ID ? (
                                         <div className="plugin-settings-empty">
-                                            <p>{settingsPlugin.manifest.id === RUNNINGHUB_PLUGIN_ID ? "RunningHub 的 API Key、Workflow / App 和字段映射在宿主设置页维护。" : "ComfyUI Bridge 的设备、服务地址和工作流字段在宿主设置页维护。"}</p>
+                                            <p>RunningHub 的 API Key、Workflow / App 和字段映射在宿主设置页维护。</p>
                                             <Button
                                                 type="primary"
                                                 icon={<ExternalLink className="size-4" />}
                                                 onClick={() => {
                                                     setSettingsPluginId(null);
-                                                    navigate(`/settings?section=${settingsPlugin.manifest.id === RUNNINGHUB_PLUGIN_ID ? "runninghub" : "comfyui"}`);
+                                                    navigate("/settings?section=runninghub");
                                                 }}
                                             >
                                                 打开工作流设置
@@ -794,14 +705,10 @@ function toRegisteredPlugin(plugin: BackendPlugin): RegisteredPlugin {
     return { manifest: plugin.manifest, source: plugin.source };
 }
 
-function isOfficialApplicationPlugin(pluginId: string) {
-    return [RUNNINGHUB_PLUGIN_ID, COMFYUI_PLUGIN_ID, EAGLE_PLUGIN_ID, PROMPT_OPTIMIZER_PLUGIN_ID, "portrait-clearance", ART_CRITIQUE_PLUGIN_ID, MEDIA_CONVERSION_PLUGIN_ID, "framescript-video-engine", "mock-video-renderer"].includes(pluginId);
-}
-
 function pluginSourceLabel(plugin: RegisteredPlugin, state?: PluginState) {
     if (plugin.source === "uploaded") return "自定义插件";
     if (plugin.source === "system") return "系统插件";
-    if (state?.canToggle || isOfficialApplicationPlugin(plugin.manifest.id)) return "官方插件";
+    if (state?.canToggle || isOfficialApplicationPluginId(plugin.manifest.id)) return "官方插件";
     return "系统插件";
 }
 
@@ -818,9 +725,6 @@ function contributionKindsFor(manifest: PluginManifest | PluginManifestV2): stri
     if (contributions.usageObservers?.length) kinds.push("usage-observer");
     if (contributions.agents?.length) kinds.push("agent");
     if (contributions.importExport?.length) kinds.push("import-export");
-    // FrameScript is a canvas application node that performs video
-    // understanding; it is not a video generation protocol/provider.
-    if (contributions.videoPlugins?.length && manifest.id !== FRAMESCRIPT_VIDEO_ENGINE_ID) kinds.push("video-plugin");
     return kinds;
 }
 
@@ -830,12 +734,9 @@ function providerCapabilitiesFor(manifest: PluginManifest | PluginManifestV2) {
 
 function pluginMatchesCategory(manifest: PluginManifest | PluginManifestV2, category: string) {
     const providerCapabilities = providerCapabilitiesFor(manifest);
-    const isFrameScriptCanvasPlugin = manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID;
-    const hasVideoPlugin = Boolean(manifest.contributes.videoPlugins?.length) && !isFrameScriptCanvasPlugin;
     const isPaymentProtocol = Boolean(manifest.contributes.paymentProviders?.length);
     if (category === "payment") return isPaymentProtocol;
-    if (category === "other") return !isPaymentProtocol && providerCapabilities.length === 0 && !hasVideoPlugin;
-    if (category === "video") return providerCapabilities.includes("video") || hasVideoPlugin;
+    if (category === "other") return !isPaymentProtocol && providerCapabilities.length === 0;
     return providerCapabilities.includes(category as "text" | "image" | "video" | "audio");
 }
 

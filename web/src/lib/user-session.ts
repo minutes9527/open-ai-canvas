@@ -1,5 +1,5 @@
 import { getFeatureAvailability, type AuthSessionPayload } from "@/services/api/auth";
-import { getModelCatalog, listLogicalModels, type CapabilitySpec, type ModelCatalogResponse, type OptionConstraint, type PublicChannelCatalog, type PublicLogicalModel } from "@/services/api/logical-models";
+import { getModelCatalog, type CapabilitySpec, type ModelCatalogResponse, type OptionConstraint, type PublicChannelCatalog, type PublicLogicalModel } from "@/services/api/logical-models";
 import { localForageStorage } from "@/lib/localforage-storage";
 import { appQueryClient } from "@/lib/query-client";
 import { scopedLocalStorage, setActiveUserScope } from "@/lib/user-scope";
@@ -9,6 +9,7 @@ import { ASSET_STORE_KEY, flushAssetStorePersistence, useAssetStore } from "@/st
 import { CONFIG_STORE_KEY, PUBLIC_MODEL_CATALOG_ID, defaultConfig, normalizeConfigSnapshot, useConfigStore, type ModelCapability, type ModelChannel } from "@/stores/use-config-store";
 import { CREATION_PREFERENCES_STORE_KEY, useCreationPreferencesStore } from "@/stores/use-creation-preferences-store";
 import { defaultModelCapabilityConfig, STANDARD_IMAGE_SIZE_VALUES, type ModelCapabilityConfig } from "@/lib/model-capabilities";
+import { imageSizeConfigWithPresets } from "@/lib/image-size-presets";
 import { useUserStore } from "@/stores/use-user-store";
 import { PLUGIN_STORE_KEY, usePluginStore } from "@/stores/use-plugin-store";
 import { initializeRemoteUserDataSession, installRemoteUserDataAutoSync, resetRemoteUserDataSync, withRemoteUserDataSyncExclusive } from "@/services/user-data-sync";
@@ -61,17 +62,10 @@ export async function applyUserSession(payload: AuthSessionPayload) {
         if (!persistedCreationPreferences) useCreationPreferencesStore.setState({ preferences: {} });
         if (!persistedConfig) {
             // 只有首次配置缺失时才生成能力推荐；已有配置中的空数组代表用户明确清空。
-            // 使用统一模型目录接口
             const catalog = await getModelCatalog();
-            let channels: ModelChannel[] = [];
-            if (catalog.source === "frontend" && catalog.models) {
-                channels = managedModelChannels(catalog.models);
-            } else if (catalog.source === "system" && catalog.channels) {
-                channels = systemChannelModelChannels(catalog.channels);
-            }
             const initialSystemConfig = {
                 ...defaultConfig,
-                channels,
+                channels: modelCatalogChannels(catalog),
                 imageModels: undefined,
                 videoModels: undefined,
                 textModels: undefined,
@@ -79,13 +73,8 @@ export async function applyUserSession(payload: AuthSessionPayload) {
             };
             useConfigStore.getState().replaceConfig(normalizeConfigSnapshot({ config: initialSystemConfig }).config);
         } else {
-            // 已有配置时也需要合并最新的系统渠道
             const catalog = await getModelCatalog();
-            if (catalog.source === "frontend" && catalog.models) {
-                useConfigStore.getState().mergeSystemChannels(managedModelChannels(catalog.models));
-            } else if (catalog.source === "system" && catalog.channels) {
-                useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(catalog.channels));
-            }
+            useConfigStore.getState().mergeSystemChannels(modelCatalogChannels(catalog));
         }
         installRemoteUserDataAutoSync();
         if (payload.user?.id) {
@@ -97,16 +86,21 @@ export async function applyUserSession(payload: AuthSessionPayload) {
 }
 
 export async function refreshSystemChannels() {
-    // 使用统一模型目录接口，根据 frontendModelsEnabled 自动返回前台模型或系统渠道模型
     const catalog = await getModelCatalog();
+    useConfigStore.getState().mergeSystemChannels(modelCatalogChannels(catalog));
+}
 
-    if (catalog.source === "frontend" && catalog.models) {
-        // 前台模型模式
-        useConfigStore.getState().mergeSystemChannels(managedModelChannels(catalog.models));
-    } else if (catalog.source === "system" && catalog.channels) {
-        // 系统渠道模式
-        useConfigStore.getState().mergeSystemChannels(systemChannelModelChannels(catalog.channels));
+// 模型目录来源决定数据形状；这里统一做运行时收口，避免畸形响应被当成“空目录”写入用户配置。
+function modelCatalogChannels(catalog: ModelCatalogResponse): ModelChannel[] {
+    if (catalog.source === "frontend") {
+        if (!Array.isArray(catalog.models)) throw new Error("模型目录响应缺少前台模型列表");
+        return managedModelChannels(catalog.models);
     }
+    if (catalog.source === "system") {
+        if (!Array.isArray(catalog.channels)) throw new Error("模型目录响应缺少系统渠道列表");
+        return systemChannelModelChannels(catalog.channels);
+    }
+    throw new Error("模型目录响应来源无效");
 }
 
 function managedModelChannels(models: PublicLogicalModel[]) {
@@ -205,7 +199,7 @@ export function systemChannelModelChannels(channels: PublicChannelCatalog[]): Mo
     });
 }
 
-function projectLogicalCapability(spec: CapabilitySpec, defaults: Record<string, unknown>): ModelCapabilityConfig {
+export function projectLogicalCapability(spec: CapabilitySpec, defaults: Record<string, unknown>): ModelCapabilityConfig {
     const projected = defaultModelCapabilityConfig();
     if (spec.capability === "image" && projected.image) {
         projected.image.references.maxImages = spec.inputs?.image?.max ?? 0;
@@ -215,11 +209,13 @@ function projectLogicalCapability(spec: CapabilitySpec, defaults: Record<string,
         projected.image.transparentBackground = { supported: false, default: false };
         const sizeOption = spec.options?.size || spec.options?.aspectRatio;
         const sizeValues = stringValues(sizeOption);
-        const sizeAllowsCustom = sizeValues.includes("*");
+        const sizeAllowsCustom = sizeValues.includes("*") || Boolean(spec.imageSize?.allowCustom);
         const concreteSizeValues = sizeValues.filter((value) => value !== "*");
         const sizePresets = concreteSizeValues.length ? concreteSizeValues : sizeAllowsCustom ? [...STANDARD_IMAGE_SIZE_VALUES] : [];
-        if (sizePresets.length || sizeAllowsCustom) {
-            projected.image!.size = { parameter: "size", values: sizePresets, default: concreteDefault(defaults.size, sizePresets, "1:1"), allowCustom: sizeAllowsCustom };
+        if (sizePresets.length || sizeAllowsCustom || spec.imageSize?.presets?.length) {
+            const parameter = spec.imageSize?.parameter === "aspect_ratio" || spec.imageSize?.parameter === "size" ? spec.imageSize.parameter : "size";
+            projected.image.size = { parameter, values: sizePresets, default: concreteDefault(defaults.size, sizePresets, "1:1"), allowCustom: sizeAllowsCustom };
+            if (spec.imageSize?.presets?.length) projected.image.size = imageSizeConfigWithPresets(projected.image, spec.imageSize.presets);
         }
         applyStringOption(spec.options?.quality, defaults.quality, (values, initial) => {
             projected.image!.quality = { supported: true, values, default: initial };

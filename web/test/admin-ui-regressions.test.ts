@@ -62,10 +62,7 @@ test("model reference limits use compact rows only inside the admin editor", asy
 });
 
 test("model editor presents protocols in a searchable inline radio browser instead of a dropdown", async () => {
-    const [source, css] = await Promise.all([
-        Bun.file(new URL("../src/pages/admin/components/channel-model-editor.tsx", import.meta.url)).text(),
-        Bun.file(new URL("../src/styles/admin-ui.css", import.meta.url)).text(),
-    ]);
+    const [source, css] = await Promise.all([Bun.file(new URL("../src/pages/admin/components/channel-model-editor.tsx", import.meta.url)).text(), Bun.file(new URL("../src/styles/admin-ui.css", import.meta.url)).text()]);
     const protocolSection = sourceSection(compactSource(source), '<Form.Item className="admin-model-protocol-field"', "{protocolError && (");
 
     expect(protocolSection).toContain("<ModelProtocolBrowser");
@@ -81,8 +78,8 @@ test("channel model fetch requires explicit selection before import", async () =
     ]);
     const component = compactSource(componentSource);
 
-    expect(apiSource).toContain("api.post(`/admin/channels/${encodeURIComponent(channelId)}/models/fetch`)");
-    expect(apiSource).toContain("api.post(`/admin/channels/${encodeURIComponent(channelId)}/models/import`, { models })");
+    expect(apiSource).toContain("http.post<{ models: string[] }>(`/admin/channels/${encodeURIComponent(channelId)}/models/fetch`)");
+    expect(apiSource).toContain("http.post<{ models: string[]; added: number }>(`/admin/channels/${encodeURIComponent(channelId)}/models/import`, { models })");
     expect(component).toContain('title="选择要导入的模型"');
     expect(component).toContain("默认已全选");
     expect(component).toContain("setFetchPreviewOpen(true)");
@@ -106,7 +103,7 @@ test("channel model manager supports bounded atomic batch deletion", async () =>
     const [componentSource, apiSource] = await Promise.all([Bun.file(new URL("../src/pages/admin/components/channel-model-manager.tsx", import.meta.url)).text(), Bun.file(new URL("../src/services/api/wallet.ts", import.meta.url)).text()]);
     const component = compactSource(componentSource);
 
-    expect(apiSource).toContain("api.post(`/admin/channels/${encodeURIComponent(channelId)}/models/batch-delete`, { modelIds })");
+    expect(apiSource).toContain("http.post<{ deleted: number }>(`/admin/channels/${encodeURIComponent(channelId)}/models/batch-delete`, { modelIds })");
     expect(component).toContain("<AdminBatchBar count={selectedModelIds.length}");
     expect(component).toContain("rowSelection:");
     expect(component).toContain("selectedRowKeys: selectedModelIds");
@@ -193,11 +190,13 @@ test("admin settings use full-width summaries without selected-card side stripes
 });
 
 test("task-first settings reveal dependent configuration only after the primary choice", async () => {
-    const [storageSource, emailSource, accessSource, featureSource, drawingSource, arkSource, interceptionSource, thirdPartySource, cssSource] = await Promise.all([
+    const [storageSource, emailSource, accessSource, featureSource, appearanceSource, welcomeSource, drawingSource, arkSource, interceptionSource, thirdPartySource, cssSource] = await Promise.all([
         Bun.file(new URL("../src/pages/admin/settings/storage-settings-page.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/components/email-settings-panel.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/components/access-settings-panel.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/components/feature-availability-panel.tsx", import.meta.url)).text(),
+        Bun.file(new URL("../src/pages/admin/settings/appearance-settings-page.tsx", import.meta.url)).text(),
+        Bun.file(new URL("../src/pages/admin/settings/components/welcome-setting.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/settings/drawing-engine-settings-page.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/settings/ark-private-assets-settings-page.tsx", import.meta.url)).text(),
         Bun.file(new URL("../src/pages/admin/settings/response-interception-settings-page.tsx", import.meta.url)).text(),
@@ -221,7 +220,9 @@ test("task-first settings reveal dependent configuration only after the primary 
     expect(featureSource).toContain('title="1. 用户工作台入口"');
     expect(featureSource).toContain('title="2. 插件开放范围"');
     expect(featureSource).toContain('title="3. 用户模型来源"');
-    expect(featureSource).toContain('className="admin-feature-runtime-note"');
+    expect(appearanceSource).toContain("<WelcomeSetting />");
+    expect(welcomeSource).toContain("<strong>启用欢迎页</strong>");
+    expect(welcomeSource).toContain("updateAdminFeatureAvailability({ welcomeEnabled: value })");
 
     expect(drawingSource).toContain('title="1. 选择新建绘图默认编辑器"');
     expect(drawingSource).toContain('title="2. 配置 tldraw 授权（按需）"');

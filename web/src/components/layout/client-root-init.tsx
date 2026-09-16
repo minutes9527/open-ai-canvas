@@ -4,8 +4,6 @@ import { App } from "antd";
 
 import { createModelChannel, useConfigStore } from "@/stores/use-config-store";
 import { navigateToSettings } from "@/lib/settings-navigation";
-import { useLocalDreaminaModelBootstrap } from "@/stores/use-local-dreamina-model-store";
-import { useLocalRuntimeBootstrap } from "@/stores/use-local-runtime-store";
 import { initializeClientDiagnostics, setDiagnosticUserScope } from "@/services/diagnostics/client-diagnostics";
 import { fetchPluginRuntimeState, setUserPluginEnabled } from "@/services/api/plugins";
 import { usePluginStore } from "@/stores/use-plugin-store";
@@ -15,9 +13,6 @@ import { appQueryClient } from "@/lib/query-client";
 export function ClientRootInit({ children }: { children: ReactNode }) {
     const config = useConfigStore((state) => state.config);
     const userId = useUserStore((state) => state.user?.id || "");
-    // Runtime 模型渠道是临时投影，不写入持久化 config；应用启动时必须先主动探测，否则首页永远无法发现即梦模型。
-    useLocalRuntimeBootstrap();
-    useLocalDreaminaModelBootstrap();
     const { message } = App.useApp();
     const handledConfigParams = useRef(false);
     const updateConfig = useConfigStore((state) => state.updateConfig);
@@ -25,19 +20,15 @@ export function ClientRootInit({ children }: { children: ReactNode }) {
     const setPluginStates = usePluginStore((state) => state.setPluginStates);
     const pluginStoreHydrated = usePluginStore((state) => state.hydrated);
 
-    useEffect(
-        () => () => {
-            usePluginStore.getState().setRuntimeStatuses({});
-            usePluginStore.getState().setPluginStates({});
-        },
-        [],
-    );
+    useEffect(() => () => {
+        usePluginStore.getState().setRuntimeStatuses({});
+        usePluginStore.getState().setPluginStates({});
+    }, []);
 
     useEffect(() => {
         if (!userId || !pluginStoreHydrated) return;
         let cancelled = false;
-        void appQueryClient
-            .fetchQuery({ queryKey: ["plugin-runtime", userId], queryFn: fetchPluginRuntimeState, staleTime: 30_000 })
+        void appQueryClient.fetchQuery({ queryKey: ["plugin-runtime", userId], queryFn: fetchPluginRuntimeState, staleTime: 30_000 })
             .then(async (runtime) => {
                 if (cancelled || useUserStore.getState().user?.id !== userId) return;
                 const statuses = { ...runtime.statuses };

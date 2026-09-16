@@ -3,8 +3,8 @@ import { getImageBlob } from "@/services/image-storage";
 import { deleteRemoteAsset, deleteRemoteCanvasProject, getRemoteAsset, getRemoteAssetsByIds, getRemoteCanvasProject, getRemoteUserDataSnapshot, listRemoteAssetsPage, upsertRemoteAsset, upsertRemoteCanvasProject } from "@/services/api/user-data";
 import { appQueryClient } from "@/lib/query-client";
 import { resourceFileUrl, resourceIdFromStorageKey, resourceStorageKey, uploadResourceFile } from "@/services/api/resources";
+import { parseAssetRecordList } from "@/lib/asset-record";
 import { assetForRemoteSync } from "@/lib/asset-remote-sync";
-import { normalizeAssetRecord } from "@/lib/asset-storage-revision";
 import type { Asset } from "@/stores/use-asset-store";
 import { flushAssetStorePersistence, useAssetStore } from "@/stores/use-asset-store";
 import type { CanvasProject } from "@/stores/canvas/use-canvas-store";
@@ -12,6 +12,9 @@ import { flushCanvasStorePersistence, useCanvasStore } from "@/stores/canvas/use
 import { useSyncProgressStore } from "@/stores/use-sync-progress-store";
 import { useCanvasHistoryStore } from "@/stores/canvas/use-canvas-history-store";
 import { repairMissingCanvasAssets } from "@/services/canvas-asset-repair";
+import { canvasNodeToAsset } from "@/lib/canvas/canvas-node-asset";
+import { sameAgentCanvasContent } from "@/lib/canvas/agent-canvas-snapshot";
+import { applyAgentCanvasPatch, type AgentCanvasPatch } from "@/lib/canvas/agent-canvas-patch";
 
 let activeRemoteUserId = "";
 type RemoteUserDataPhase = "inactive" | "hydrating" | "ready" | "failed";
@@ -28,6 +31,7 @@ let incrementalSession = false;
 let sessionEpoch = 0;
 const verifiedProjects = new Set<string>();
 const verifiedAssets = new Set<string>();
+const remoteProjectLoadPromises = new Map<string, Promise<CanvasProject | undefined>>();
 
 export async function initializeRemoteUserDataSession(userId: string) {
     await withRemoteUserDataSyncExclusive(async () => {
@@ -41,8 +45,10 @@ export async function initializeRemoteUserDataSession(userId: string) {
 }
 
 export async function loadCanvasProjectForEditing(id: string) {
+    const pending = remoteProjectLoadPromises.get(id);
+    if (pending) return pending;
     const epoch = sessionEpoch;
-    return withRemoteUserDataSyncExclusive(async () => {
+    const request = withRemoteUserDataSyncExclusive(async () => {
         if (epoch !== sessionEpoch) throw new Error("账号已切换，请重新打开画布");
         const local = useCanvasStore.getState().projects.find((project) => project.id === id);
         if (!activeRemoteUserId || verifiedProjects.has(id)) return local;
@@ -50,8 +56,10 @@ export async function loadCanvasProjectForEditing(id: string) {
         await loadReferencedAssets(collectAssetIds(project));
         const current = useCanvasStore.getState().projects.find((candidate) => candidate.id === id);
         if (current && !sameEntitySnapshot(acknowledgedProjects.get(id), current)) {
-            const baseline = acknowledgedProjects.get(id);
-            if (baseline && Date.parse(baseline.updatedAt) !== Date.parse(project.updatedAt)) throw new Error("画布已在其他端修改，请先导出本地修改再重新加载");
+            // 当前页面已经开始编辑本地缓存时，远端详情只建立新的冲突基线；
+            // 保留当前画布内容，后续保存由当前打开的画布显式覆盖远端版本，
+            // 避免旧缓存被永久卡在“自动重试但永远冲突”的状态。
+            acknowledgedProjects.set(id, project);
             verifiedProjects.add(id);
             return current;
         }
@@ -60,6 +68,64 @@ export async function loadCanvasProjectForEditing(id: string) {
         useCanvasStore.setState((state) => ({ projects: [...state.projects.filter((candidate) => candidate.id !== id), project] }));
         return project;
     });
+    remoteProjectLoadPromises.set(id, request);
+    const clearPending = () => {
+        if (remoteProjectLoadPromises.get(id) === request) remoteProjectLoadPromises.delete(id);
+    };
+    void request.then(clearPending, clearPending);
+    return request;
+}
+
+// Never replace edits made while the Agent was running. Leave the acknowledged
+// baseline untouched on conflict, so automatic sync cannot silently overwrite it.
+const agentCanvasListeners = new Set<(project: CanvasProject, previous: CanvasProject | undefined) => void>();
+
+export function subscribeAgentCanvasRefresh(listener: (project: CanvasProject, previous: CanvasProject | undefined) => void) {
+    agentCanvasListeners.add(listener);
+    return () => { agentCanvasListeners.delete(listener); };
+}
+
+export async function refreshCanvasAfterAgent(id: string) {
+    const epoch = sessionEpoch;
+    return withRemoteUserDataSyncExclusive(async () => {
+        if (!activeRemoteUserId) throw new Error("请先登录再刷新 Agent 画布结果");
+        const { project } = await getRemoteCanvasProject(id);
+        if (epoch !== sessionEpoch) throw new Error("账号已切换");
+        const current = useCanvasStore.getState().projects.find((candidate) => candidate.id === id);
+        if (current && !sameAgentCanvasContent(acknowledgedProjects.get(id), current)) throw new Error("Agent 已更新服务端画布，但本地存在未同步编辑。已保留本地内容，请处理同步冲突后刷新。");
+        if (current && sameEntitySnapshot(current, project)) return current;
+        const projected = current ? { ...project, viewport: current.viewport } : project;
+        for (const listener of agentCanvasListeners) listener(projected, current);
+        acknowledgedProjects.set(id, project);
+        verifiedProjects.add(id);
+        useCanvasStore.setState((state) => ({ projects: [...state.projects.filter((candidate) => candidate.id !== id), projected] }));
+        return projected;
+    });
+}
+
+export async function applyAgentCanvasPatches(id: string, patches: AgentCanvasPatch[]) {
+    const epoch = sessionEpoch;
+    return withRemoteUserDataSyncExclusive(async () => {
+        if (epoch !== sessionEpoch || !activeRemoteUserId) throw new Error("账号已切换或未登录，已停止 Agent 画布同步");
+        const baseline = acknowledgedProjects.get(id);
+        const current = useCanvasStore.getState().projects.find((project) => project.id === id);
+        if (!baseline || !current) throw new Error("缺少画布同步基线，需要重新读取画布");
+        const remote = patches.reduce(applyAgentCanvasPatch, baseline);
+        const projected = patches.reduce(applyAgentCanvasPatch, current);
+        if (projected !== current) {
+            for (const listener of agentCanvasListeners) listener(projected, current);
+        }
+        acknowledgedProjects.set(id, remote);
+        verifiedProjects.add(id);
+        if (projected === current) return current;
+        useCanvasStore.setState((state) => ({ projects: state.projects.map((project) => project.id === id ? projected : project) }));
+        return projected;
+    });
+}
+
+async function waitForRemoteProjectLoads() {
+    const pending = [...remoteProjectLoadPromises.values()];
+    if (pending.length) await Promise.all(pending);
 }
 
 export async function loadAssetLibraryPage(options: Parameters<typeof listRemoteAssetsPage>[0]) {
@@ -69,14 +135,11 @@ export async function loadAssetLibraryPage(options: Parameters<typeof listRemote
         if (epoch !== sessionEpoch) throw new Error("账号已切换，请重新读取素材");
         acceptRemoteAssets(result.assets);
     });
-    return result;
+    return { ...result, assets: parseAssetRecordList(result.assets) };
 }
 
 function acceptRemoteAssets(remoteAssets: Asset[]) {
-    // 服务端素材是历史遗留形状不定的 payload：早期记录可能没有 tags、图片尺寸等字段。
-    // 归一化必须发生在进入 store 之前，否则页面会拿到不符合 Asset 类型的记录；
-    // acknowledged 基线也要用同一份对象，避免归一化差异把素材永久标记为待上传。
-    const assets = remoteAssets.map(normalizeAssetRecord);
+    const assets = parseAssetRecordList(remoteAssets);
     const current = new Map(useAssetStore.getState().assets.map((asset) => [asset.id, asset]));
     for (const asset of assets) {
         const local = current.get(asset.id);
@@ -119,7 +182,9 @@ export async function loadAssetsForUse(ids: Iterable<string>) {
 const LOCAL_STORAGE_KEY_PATTERN = /^(image|video|audio|file|video-reference|audio-reference):/;
 
 export async function syncRemoteUserData(userId?: string | null) {
-    let repairedCanvasAssets = false;
+	// 登录/切换账号时，服务端快照建立新的远端基线；本地 IndexedDB 只负责首屏缓存，
+	// 不能把服务端已经删除或当前用户无权访问的实体重新补回去。后续增量保存必须基于这份基线做冲突校验。
+	let repairedCanvasAssets = false;
     await withRemoteUserDataSyncExclusive(async () => {
         incrementalSession = false;
         activeRemoteUserId = userId || "";
@@ -136,7 +201,7 @@ export async function syncRemoteUserData(userId?: string | null) {
             const snapshot = await getRemoteUserDataSnapshot();
             // 登录时服务端是实体真相。浏览器 IndexedDB 只作为首屏缓存，不能把服务端已删除的记录补回去。
             // 这里只替换结构化记录，不在登录阶段解析图片/视频/音频 URL；媒体由实际使用方按需解析。
-            const snapshotAssets = snapshot.assets.map(normalizeAssetRecord);
+            const snapshotAssets = parseAssetRecordList(snapshot.assets);
             useCanvasStore.getState().replaceProjects(snapshot.projects);
             useAssetStore.getState().replaceAssets(snapshotAssets);
             const repair = repairMissingCanvasAssets();
@@ -169,6 +234,7 @@ export function resetRemoteUserDataSync() {
     incrementalSession = false;
     verifiedProjects.clear();
     verifiedAssets.clear();
+    remoteProjectLoadPromises.clear();
     activeRemoteUserId = "";
     remoteUserDataPhase = "inactive";
     acknowledgedAssets.clear();
@@ -185,8 +251,14 @@ export function hasRemoteUserDataSyncSession() {
     return Boolean(activeRemoteUserId) && remoteUserDataPhase === "ready";
 }
 
+/**
+ * 串行执行用户数据同步、账号切换和登出相关的远端操作。
+ *
+ * 前一个操作失败只影响它自己，不能让后续操作永远停在 rejected tail；当前操作的
+ * 结果仍原样返回，由调用方决定如何提示或重试，避免同步层把写入失败伪装成成功。
+ */
 export function withRemoteUserDataSyncExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    const pending = remoteOperationTail.catch(() => undefined).then(operation);
+    const pending = remoteOperationTail.then(() => undefined, () => undefined).then(operation);
     remoteOperationTail = pending.then(
         () => undefined,
         () => undefined,
@@ -207,7 +279,18 @@ export function scheduleRemoteUserDataSync() {
     }, 1200);
 }
 
-export async function createCanvasProjectWithRemoteSync(title: string, projectId?: string, initialContent?: Partial<Pick<CanvasProject, "nodes" | "connections">>) {
+export function formatLocalSavedRemotePending(localAction: string, error: unknown): string {
+    const detail = error instanceof Error && error.message.trim() ? error.message.trim() : "未知错误";
+    return `${localAction}，云端同步失败：${detail}。将自动重试。`;
+}
+
+/** 本地写已成功、云端同步失败：排队同一幂等重试，并返回可直接展示的 warning。不得回滚本地写，也不得说成已保存到云端。 */
+export function localSavedRemotePendingMessage(localAction: string, error: unknown): string {
+    scheduleRemoteUserDataSync();
+    return formatLocalSavedRemotePending(localAction, error);
+}
+
+export async function createCanvasProjectWithRemoteSync(title: string, projectId?: string, initialContent?: Partial<Pick<CanvasProject, "nodes" | "connections" | "chatSessions" | "activeChatId">>) {
     const id = useCanvasStore.getState().createProject(title, projectId);
     if (initialContent) useCanvasStore.getState().updateProject(id, initialContent);
     if (!activeRemoteUserId) return { id, syncError: new Error("尚未建立云端同步会话") };
@@ -299,13 +382,12 @@ export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
             assetChanged = true;
         }
 
-        // 2. 对于画布中尚未入库的媒体节点，直接归档为回收站素材
+        // 2. 对于画布中尚未入库的媒体节点，直接归档为回收站素材。
+        // 素材字段统一交给 canvasNodeToAsset 组装，避免删除路径另起一套尺寸、MIME 和资源定位规则。
         for (const project of deletedProjectObjects) {
             for (const node of project.nodes || []) {
                 const isMedia = node.type === "image" || node.type === "video" || node.type === "audio";
-                const content = typeof node.metadata?.content === "string" ? node.metadata.content : "";
-                const storageKey = typeof node.metadata?.storageKey === "string" ? node.metadata.storageKey : undefined;
-                if (!isMedia || (!content && !storageKey)) continue;
+                if (!isMedia) continue;
 
                 const existingAsset = node.metadata?.assetId ? currentAssets.find((a) => a.id === node.metadata?.assetId) : undefined;
                 if (existingAsset) {
@@ -317,78 +399,25 @@ export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
                     continue;
                 }
 
+                const archivedAsset = canvasNodeToAsset(node, { canvasId: project.id, source: "canvas-manual" });
+                if (!archivedAsset) continue;
+
                 const title = node.title || `${project.title} - ${node.type === "image" ? "图片" : node.type === "video" ? "视频" : "音频"}`;
                 const prompt = typeof node.metadata?.prompt === "string" ? node.metadata.prompt : "";
-                if (node.type === "image") {
-                    useAssetStore.getState().addAsset({
-                        kind: "image",
-                        title,
-                        coverUrl: content || "",
-                        tags: prompt ? [prompt.slice(0, 16)] : ["画布生成"],
-                        category: "other",
-                        status: "archived",
-                        source: `已删除画布：${project.title}`,
-                        data: {
-                            dataUrl: content || "",
-                            storageKey,
-                            width: Number(node.width) || 1024,
-                            height: Number(node.height) || 1024,
-                            bytes: Number(node.metadata?.bytes) || 0,
-                            mimeType: (node.metadata?.mimeType as string) || "image/png",
-                        },
-                        metadata: {
-                            canvasId: project.id,
-                            sourceNodeId: node.id,
-                        },
-                    });
-                    assetChanged = true;
-                } else if (node.type === "video") {
-                    useAssetStore.getState().addAsset({
-                        kind: "video",
-                        title,
-                        coverUrl: content || "",
-                        tags: prompt ? [prompt.slice(0, 16)] : ["画布视频"],
-                        category: "other",
-                        status: "archived",
-                        source: `已删除画布：${project.title}`,
-                        data: {
-                            url: content || "",
-                            storageKey,
-                            width: Number(node.width) || 1280,
-                            height: Number(node.height) || 720,
-                            durationMs: Number(node.metadata?.durationMs) || 0,
-                            bytes: Number(node.metadata?.bytes) || 0,
-                            mimeType: (node.metadata?.mimeType as string) || "video/mp4",
-                        },
-                        metadata: {
-                            canvasId: project.id,
-                            sourceNodeId: node.id,
-                        },
-                    });
-                    assetChanged = true;
-                } else if (node.type === "audio") {
-                    useAssetStore.getState().addAsset({
-                        kind: "audio",
-                        title,
-                        coverUrl: "",
-                        tags: ["画布音频"],
-                        category: "other",
-                        status: "archived",
-                        source: `已删除画布：${project.title}`,
-                        data: {
-                            url: content || "",
-                            storageKey,
-                            durationMs: Number(node.metadata?.durationMs) || 0,
-                            bytes: Number(node.metadata?.bytes) || 0,
-                            mimeType: (node.metadata?.mimeType as string) || "audio/mpeg",
-                        },
-                        metadata: {
-                            canvasId: project.id,
-                            sourceNodeId: node.id,
-                        },
-                    });
-                    assetChanged = true;
-                }
+                useAssetStore.getState().addAsset({
+                    ...archivedAsset,
+                    title,
+                    tags: node.type === "audio" ? ["画布音频"] : prompt ? [prompt.slice(0, 16)] : [node.type === "video" ? "画布视频" : "画布生成"],
+                    category: "other",
+                    status: "archived",
+                    source: `已删除画布：${project.title}`,
+                    metadata: {
+                        ...archivedAsset.metadata,
+                        canvasId: project.id,
+                        sourceNodeId: node.id,
+                    },
+                });
+                assetChanged = true;
             }
         }
 
@@ -408,9 +437,13 @@ export async function deleteCanvasProjectsWithRemoteSync(ids: string[]) {
 }
 
 export async function saveRemoteUserDataNow() {
+    // 这是远端写入的总闸门：只有 phase=ready 且已建立 acknowledged 基线时才能提交。
+    // 本地 Zustand/localForage 写成功不等于服务端写成功，任何同步异常都必须继续抛出给调用方。
     const epoch = sessionEpoch;
     if (!activeRemoteUserId) return;
     requireRemoteUserDataBaseline();
+    // 画布先用本地缓存秒开时，远端详情校验可能仍在进行；写入必须等待校验结果。
+    await waitForRemoteProjectLoads();
     if (syncPromise) {
         syncQueued = true;
         return syncPromise;
@@ -456,7 +489,11 @@ async function saveRemoteUserDataBatch(uploaded: Map<string, string>) {
             const baseline = acknowledgedProjects.get(source.id);
             if (!baseline || verifiedProjects.has(source.id)) continue;
             const { project } = await getRemoteCanvasProject(source.id);
-            if (Date.parse(project.updatedAt) !== Date.parse(baseline.updatedAt)) throw new Error("画布远端版本已变化，已停止覆盖，请重新打开画布");
+            if (Date.parse(project.updatedAt) !== Date.parse(baseline.updatedAt)) {
+                // 以远端当前版本作为新的校验基线，继续提交当前打开画布的完整快照。
+                // 这是画布编辑态的显式覆盖策略，避免资产同步被旧缓存冲突永久阻塞。
+                acknowledgedProjects.set(source.id, project);
+            }
             verifiedProjects.add(source.id);
         }
         for (const source of dirtyAssets) {

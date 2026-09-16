@@ -2,7 +2,7 @@ import { buildImageResolutionOptions, type ImageResolutionOption, type ImageReso
 import type { ImageCapabilityConfig } from "./model-capabilities";
 
 export const IMAGE_RESOLUTIONS: ImageResolutionTier[] = ["1k", "2k", "4k"];
-export const IMAGE_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "21:9"];
+export const IMAGE_RATIOS = ["1:1", "16:9", "9:16", "4:3", "3:4", "3:2", "2:3", "4:5", "5:4", "21:9"];
 const standardSizes: Record<string, string[]> = {
     "1:1": ["1024x1024", "2048x2048", "2880x2880"],
     "16:9": ["1824x1024", "2752x1536", "3840x2160"],
@@ -11,6 +11,8 @@ const standardSizes: Record<string, string[]> = {
     "3:4": ["1024x1360", "1728x2304", "2448x3264"],
     "3:2": ["1536x1024", "2496x1664", "3504x2336"],
     "2:3": ["1024x1536", "1664x2496", "2336x3504"],
+    "4:5": ["1024x1280", "1792x2240", "2560x3200"],
+    "5:4": ["1280x1024", "2240x1792", "3200x2560"],
     "21:9": ["2048x878", "3136x1344", "3808x1632"],
 };
 
@@ -59,17 +61,29 @@ export function imageResolutionUsesQuality(profile: ImageCapabilityConfig) {
 }
 
 export function imageTierAvailable(profile: ImageCapabilityConfig, tier: ImageResolutionTier) {
-    // 比例协议必须能把档位传给上游；允许自定义比例不等于支持任意分辨率。
+    // 质量参数能映射档位时按上游质量裁剪；管理员尺寸预设存在时再取交集，避免默认 low/medium/high 把未启用的 1K 显示出来。
     if (profile.size.parameter !== "aspect_ratio") return profile.size.parameter !== "none";
-    return imageResolutionUsesQuality(profile) ? Boolean(imageQualityForTier(profile, tier)) : tier === "1k";
+    const configuredTiers = new Set(profile.size.presets?.map((preset) => preset.tier));
+    if (imageResolutionUsesQuality(profile)) {
+        if (!imageQualityForTier(profile, tier)) return false;
+        return configuredTiers.size ? configuredTiers.has(tier) : true;
+    }
+    if (configuredTiers.size) return configuredTiers.has(tier);
+    // 无质量映射且无预设时,后端 filterImageSizePresets 会返回全部预设或空;
+    // 前端不应硬编码 1k 兜底,避免产生后端不认可的幻影选项。
+    return false;
+}
+
+export function imageQualityForSelection(profile: ImageCapabilityConfig, tier: ImageResolutionTier) {
+    return imageQualityForTier(profile, tier) || (!imageResolutionUsesQuality(profile) && imageTierAvailable(profile, tier) ? tier : undefined);
 }
 
 export function imageSizePresets(profile: ImageCapabilityConfig): ImageResolutionOption[] {
     if (profile.size.parameter === "none") return [];
     if (profile.size.presets) return profile.size.presets;
     const pixels = buildImageResolutionOptions(profile.size.values);
-    const tiers = profile.size.parameter === "aspect_ratio" ? IMAGE_RESOLUTIONS.filter((tier) => imageQualityForTier(profile, tier)) : ["1k" as const];
-    const ratios = (tiers.length ? tiers : ["1k" as const]).flatMap((tier) =>
+    const tiers = profile.size.parameter === "aspect_ratio" ? IMAGE_RESOLUTIONS.filter((tier) => imageQualityForTier(profile, tier)) : [];
+    const ratios = tiers.flatMap((tier) =>
         profile.size.values.flatMap((ratio) => {
             try {
                 const preset = imagePresetForRatio(tier, ratio);
