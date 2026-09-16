@@ -252,13 +252,13 @@ export default function PluginsPage() {
                 channels.push(...(result.channels || []));
                 // 系统只读接口可能因价格目录过滤返回空列表；后台渠道接口仍包含完整模型键。
                 if (!channels.length) {
-                    const fallback = await listAdminChannels({ page: 1, pageSize: 100 });
+                    const fallback = await listAdminChannels({ page: 1, limit: 100 });
                     channels.push(...(fallback.channels || []));
                 }
             } catch {
                 // 旧后端没有只读系统渠道接口时，回退到管理员分页接口。
                 try {
-                    const result = await listAdminChannels({ page: 1, pageSize: 100 });
+                    const result = await listAdminChannels({ page: 1, limit: 100 });
                     channels.push(...(result.channels || []));
                 } catch {
                     // 保留已有缓存，保存时仍会阻止选择不存在的渠道。
