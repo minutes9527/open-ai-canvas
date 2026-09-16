@@ -58,6 +58,8 @@ export type CanvasNodeContentProps = {
     onToggleBatch?: () => void;
     reduceMediaEffects?: boolean;
     mediaActive?: boolean;
+    scale?: number;
+    onConnectStart?: (event: React.PointerEvent, nodeId: string, handleType: "source" | "target", handleId?: string, anchorRatio?: number) => void;
     onMediaPlayRequest?: (nodeId: string) => void;
 };
 
