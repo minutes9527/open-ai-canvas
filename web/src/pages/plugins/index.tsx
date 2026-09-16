@@ -8,12 +8,16 @@ import { EmptyState } from "@/components/ui/product/empty-state";
 import { listRegisteredPlugins } from "@/lib/plugins/plugin-registry";
 import "@/lib/plugins/builtin";
 import { EAGLE_PLUGIN_ID } from "@/lib/plugins/builtin/eagle";
+import { DEFAULT_FRAMESCRIPT_PROMPT_MODEL, DEFAULT_FRAMESCRIPT_TRANSCRIPTION_MODEL, DEFAULT_FRAMESCRIPT_VISION_MODEL, FRAMESCRIPT_VIDEO_ENGINE_ID } from "@/lib/plugins/builtin/framescript-video-engine";
 import { PROMPT_OPTIMIZER_PLUGIN_ID } from "@/lib/plugins/builtin/prompt-optimizer";
 import { RUNNINGHUB_PLUGIN_ID } from "@/lib/plugins/builtin/workflows";
 import { isOfficialApplicationPluginId } from "@/lib/plugins/official-applications";
 import type { PluginManifest, PluginManifestV2, RegisteredPlugin } from "@/lib/plugins/plugin-types";
 import { getEagleLibrary, type EagleFolder } from "@/services/api/eagle";
+import { getSystemChannels, listAdminChannels } from "@/services/api/auth";
 import { fetchPlugins, setUserPluginEnabled, type BackendPlugin, type PluginState } from "@/services/api/plugins";
+import { refreshSystemChannels } from "@/lib/user-session";
+import { modelOptionName, useConfigStore, type ModelChannel } from "@/stores/use-config-store";
 import { useAppearanceStore } from "@/stores/use-appearance-store";
 import { usePluginStore } from "@/stores/use-plugin-store";
 import { useUserStore } from "@/stores/use-user-store";
@@ -77,8 +81,17 @@ export default function PluginsPage() {
     const setPluginStates = usePluginStore((state) => state.setPluginStates);
     const pluginStates = usePluginStore((state) => state.pluginStates);
     const updateConfig = usePluginStore((state) => state.updateConfig);
+    const systemChannels = useConfigStore((state) => state.config.channels);
     const builtinPlugins = useMemo(() => listRegisteredPlugins(), []);
     const [backendPlugins, setBackendPlugins] = useState<BackendPlugin[]>([]);
+    const [frameScriptAdminChannels, setFrameScriptAdminChannels] = useState<ModelChannel[]>([]);
+    const [frameScriptChannelsLoading, setFrameScriptChannelsLoading] = useState(false);
+    const [frameScriptChannelId, setFrameScriptChannelId] = useState("");
+    const [frameScriptVisionModel, setFrameScriptVisionModel] = useState("");
+    const [frameScriptPromptModel, setFrameScriptPromptModel] = useState("");
+    const [frameScriptTranscriptionModel, setFrameScriptTranscriptionModel] = useState("");
+    const [frameScriptChangeThreshold, setFrameScriptChangeThreshold] = useState(0.32);
+    const [frameScriptSamplingIntervalMs, setFrameScriptSamplingIntervalMs] = useState(400);
     const [backendPluginsLoading, setBackendPluginsLoading] = useState(false);
     const [settingsPluginId, setSettingsPluginId] = useState<string | null>(null);
     const [detailsPluginId, setDetailsPluginId] = useState<string | null>(null);
@@ -200,6 +213,72 @@ export default function PluginsPage() {
     const settingsInstallation = settingsPlugin ? installations.find((item) => item.manifest.id === settingsPlugin.manifest.id) : undefined;
     const settingsEnabled = settingsPlugin ? (pluginStates[settingsPlugin.manifest.id]?.effectiveEnabled ?? Boolean(settingsInstallation?.enabled)) : false;
     const detailsPlugin = detailsPluginId ? registeredPlugins.find((plugin) => plugin.manifest.id === detailsPluginId) : undefined;
+
+    const frameScriptChannels = useMemo(() => {
+        const channels = frameScriptAdminChannels.length ? frameScriptAdminChannels : systemChannels.filter((channel) => channel.scope === "system");
+        return channels.filter((channel) => channel.enabled !== false);
+    }, [frameScriptAdminChannels, systemChannels]);
+    const selectedFrameScriptChannel = useMemo(
+        () => frameScriptChannels.find((channel) => channel.id === frameScriptChannelId),
+        [frameScriptChannelId, frameScriptChannels],
+    );
+    const frameScriptModelOptions = useMemo(() => {
+        const models = selectedFrameScriptChannel?.models || [];
+        return [...new Set(models.map((model) => modelOptionName(model).trim()).filter(Boolean))].map((model) => ({ value: model, label: model }));
+    }, [selectedFrameScriptChannel]);
+
+    useEffect(() => {
+        if (settingsPlugin?.manifest.id !== FRAMESCRIPT_VIDEO_ENGINE_ID) return;
+        setFrameScriptChannelsLoading(true);
+        // 先刷新普通配置缓存；系统模型目录可能因价格配置而为空，不能把它作为唯一来源。
+        void refreshSystemChannels().catch(() => {
+            // 保留已缓存的系统渠道；下面仍会尝试读取后台渠道列表。
+        });
+
+        // 插件设置页需要完整的系统渠道模型键（包括尚未配置价格的模型）。
+        // 先走面向用户的只读系统渠道接口，避免普通用户依赖管理员权限；
+        // 旧后端或管理员环境下再回退到后台分页接口。
+        void (async () => {
+            const channels: ModelChannel[] = [];
+            try {
+                const result = await getSystemChannels();
+                channels.push(...(result.channels || []));
+                // 系统只读接口可能因价格目录过滤返回空列表；后台渠道接口仍包含完整模型键。
+                if (!channels.length) {
+                    const fallback = await listAdminChannels({ page: 1, pageSize: 100 });
+                    channels.push(...(fallback.channels || []));
+                }
+            } catch {
+                // 旧后端没有只读系统渠道接口时，回退到管理员分页接口。
+                try {
+                    const result = await listAdminChannels({ page: 1, pageSize: 100 });
+                    channels.push(...(result.channels || []));
+                } catch {
+                    // 保留已有缓存，保存时仍会阻止选择不存在的渠道。
+                }
+            }
+            if (channels.length) {
+                setFrameScriptAdminChannels([...new Map(channels.map((channel) => [channel.id, channel])).values()]);
+            }
+            setFrameScriptChannelsLoading(false);
+        })();
+    }, [settingsPlugin?.manifest.id]);
+
+    useEffect(() => {
+        if (settingsPlugin?.manifest.id !== FRAMESCRIPT_VIDEO_ENGINE_ID) return;
+        const config = settingsInstallation?.config || {};
+        const configuredModels = [config.visionModel, config.promptModel, config.transcriptionModel].filter((value): value is string => typeof value === "string" && Boolean(value.trim()));
+        const configuredChannelId = typeof config.channelId === "string" ? config.channelId : "";
+        const inferredChannel = frameScriptChannels.find((channel) => configuredChannelId === channel.id) || frameScriptChannels.find((channel) => configuredModels.some((model) => channel.models.some((item) => modelOptionName(item) === model.trim())));
+        const channelModels = inferredChannel?.models.map((model) => modelOptionName(model).trim()).filter(Boolean) || [];
+        const pickModel = (value: unknown, fallback: string) => typeof value === "string" && channelModels.includes(value.trim()) ? value.trim() : channelModels[0] || fallback;
+        setFrameScriptChannelId(inferredChannel?.id || configuredChannelId);
+        setFrameScriptVisionModel(inferredChannel ? pickModel(config.visionModel, DEFAULT_FRAMESCRIPT_VISION_MODEL) : "");
+        setFrameScriptPromptModel(inferredChannel ? pickModel(config.promptModel, DEFAULT_FRAMESCRIPT_PROMPT_MODEL) : "");
+        setFrameScriptTranscriptionModel(inferredChannel ? pickModel(config.transcriptionModel, DEFAULT_FRAMESCRIPT_TRANSCRIPTION_MODEL) : "");
+        setFrameScriptChangeThreshold(typeof config.changeThreshold === "number" ? config.changeThreshold : Number(config.changeThreshold) || 0.32);
+        setFrameScriptSamplingIntervalMs(typeof config.samplingIntervalMs === "number" ? config.samplingIntervalMs : Number(config.samplingIntervalMs) || 400);
+    }, [frameScriptChannels, settingsInstallation?.config, settingsInstallation?.updatedAt, settingsPlugin?.manifest.id, settingsPluginId]);
 
     const hasPluginConfiguration = (plugin: RegisteredPlugin) => Boolean(plugin.manifest.configuration?.fields?.length);
     const canConfigurePlugin = (plugin: RegisteredPlugin) => Boolean(pluginStates[plugin.manifest.id]?.canConfigure) && (hasPluginConfiguration(plugin) || plugin.manifest.id === RUNNINGHUB_PLUGIN_ID);

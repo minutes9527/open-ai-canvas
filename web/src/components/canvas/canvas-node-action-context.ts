@@ -1,10 +1,14 @@
 import { createContext, useContext } from "react";
 
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
+import type { FrameScriptOriginalAnalysis } from "@/lib/framescript-video-review/contracts";
 
 // 批次子图操作条（下载/创建副本/删除）与主图位下载需要调用画布级动作，
 // 但画布节点经 CanvasProjectWorldLayers 渲染、不便逐个透传 handler，
 // 通过 Context 注入，避免改动 world-layers。无 Provider 时静默降级为 no-op。
+export type FrameScriptCanvasFrame = { id: string; index: number; timeMs: number; imageUrl: string; sourceVideoId?: string; reasons?: readonly string[]; };
+export type FrameScriptCanvasStoryboardFrame = FrameScriptCanvasFrame & { originalAnalysis?: FrameScriptOriginalAnalysis; durationSeconds: number; description?: string; imageGenerationPrompt?: string; videoMotionPrompt?: string; dialogue?: string; screenText?: string; referenceNodeId?: string; referenceNodeIds?: readonly string[]; };
+
 export type CanvasNodeActionContextValue = {
     upload?: (node: CanvasNodeData) => void;
     download?: (node: CanvasNodeData) => void;
@@ -23,6 +27,9 @@ export type CanvasNodeActionContextValue = {
     openArtCritique?: (node: CanvasNodeData) => void;
     /** 全景节点导出截图：上传 dataUrl 并在源节点右侧创建派生图片节点。 */
     addPanoramaCaptureNode?: (node: CanvasNodeData, dataUrl: string, title: string) => Promise<void> | void;
+    addFrameScriptImageNodes?: (node: CanvasNodeData, frames: readonly FrameScriptCanvasFrame[]) => Promise<void> | void;
+    addFrameScriptStoryboardNode?: (node: CanvasNodeData, frames: readonly FrameScriptCanvasStoryboardFrame[]) => Promise<void> | void;
+    createFrameScriptImageGenerationNodes?: (node: CanvasNodeData, frameId?: string) => Promise<void> | void;
 };
 
 export const CanvasNodeActionContext = createContext<CanvasNodeActionContextValue>({});

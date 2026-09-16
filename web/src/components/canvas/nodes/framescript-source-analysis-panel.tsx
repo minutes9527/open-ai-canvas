@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { AppModal } from "@/components/ui/product/app-modal";
+import { Modal } from "antd";
 import type { FrameScriptCreativeContent, FrameScriptOriginalAnalysis, FrameScriptReplacementSetting, FrameScriptStoryboardNodeState } from "@/lib/framescript-video-review/contracts";
 import { applyFrameScriptReplacement, frameScriptFinalContent, frameScriptLatestOriginalAnalysis, sameFrameScriptOriginalAnalysis, type FrameScriptReplacementScope } from "@/lib/framescript-video-review/storyboard-content";
 import { CanvasNodeType, type CanvasNodeData } from "@/types/canvas";
@@ -38,7 +38,7 @@ export function FrameScriptSourceAnalysisPanel({ state, nodes, onClose, onApply,
         referenceNodeIds: selectedReferenceNodeIds,
     };
     const previewFrame = frame && replacementPreview && replacementDescription.trim() ? applyFrameScriptReplacement(frame, replacementSetting) : frame;
-    return <AppModal open onCancel={onClose} title="原片对照" footer={null} width="min(1040px, calc(100vw - 32px))" centered getContainer={() => (document.fullscreenElement as HTMLElement) || document.body}>
+    return <Modal open onCancel={onClose} title="原片对照" footer={null} width="min(1040px, calc(100vw - 32px))" centered getContainer={() => (document.fullscreenElement as HTMLElement) || document.body}>
         <div data-canvas-no-zoom data-canvas-wheel-scroll onPointerDown={(event) => event.stopPropagation()}>
             <div className="mb-4 flex flex-wrap items-center gap-3">
                 <label className="flex items-center gap-2 text-sm">选择镜头
@@ -88,7 +88,7 @@ export function FrameScriptSourceAnalysisPanel({ state, nodes, onClose, onApply,
                 </details> : null}
             </div> : null}
         </div>
-    </AppModal>;
+    </Modal>;
 }
 
 function AnalysisFields({ content, description }: { content: FrameScriptCreativeContent; description?: string }) {

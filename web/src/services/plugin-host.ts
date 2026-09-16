@@ -1,5 +1,4 @@
 import { requestToolResponse, type ResponseFunctionTool, type ResponseInputMessage, type ToolChoice } from "@/services/api/image";
-import { createChannelTransport } from "@/services/api/channel-transport";
 import { pluginStorageFor } from "@/lib/plugins/plugin-storage";
 import { getMediaBlob } from "@/services/file-storage";
 import { getResource, resourceStorageKey } from "@/services/api/resources";
@@ -64,30 +63,8 @@ export function createPluginHostContext(plugin: RegisteredPlugin, installation: 
                     },
                 },
                 audio: {
-                    transcribe: async (request) => {
-                        if (!permissions.has("ai.audio")) throw new Error("插件没有调用音频模型的权限");
-                        const requestConfig = resolvePluginModelConfig(request.model);
-                        const form = new FormData();
-                        form.append("file", request.file, request.fileName);
-                        form.append("model", modelOptionName(requestConfig.model));
-                        const result = await createChannelTransport(requestConfig, "audio").postForm<Record<string, unknown>>(
-                            buildApiUrl(requestConfig.baseUrl, "/audio/transcriptions"),
-                            form,
-                            { signal: request.signal },
-                        );
-                        const text = typeof result.text === "string" ? result.text.trim() : "";
-                        if (!text) throw new Error("系统渠道未返回有效的语音转写文本");
-                        const segments = Array.isArray(result.segments)
-                            ? result.segments.flatMap((segment) => {
-                                if (!segment || typeof segment !== "object") return [];
-                                const item = segment as Record<string, unknown>;
-                                const start = timeToMs(item.start_ms ?? item.start, 0);
-                                const end = timeToMs(item.end_ms ?? item.end, start);
-                                const segmentText = String(item.text ?? item.original_text ?? "").trim();
-                                return segmentText ? [{ startMs: start, endMs: Math.max(start, end), text: segmentText }] : [];
-                            })
-                            : undefined;
-                        return { text, segments };
+                    transcribe: async () => {
+                        throw new Error("当前主线尚未提供系统渠道语音转写传输层，请先选择支持文本/视觉的 FrameScript 工作流。");
                     },
                 },
             },

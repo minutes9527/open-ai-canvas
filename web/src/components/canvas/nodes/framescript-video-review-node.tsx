@@ -1,7 +1,7 @@
 import { AlertCircle, Check, CheckCircle2, Clapperboard, Download, FileAudio, Frame, LoaderCircle, PlaySquare, Sparkles, Waves } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
-import { AppModal } from "@/components/ui/product/app-modal";
+import { Modal } from "antd";
 import { frameScriptReviewStatusLabel, frameScriptSkillContext, createDefaultFrameScriptVideoReviewState, sameFrameScriptVideoSourceBinding, type FrameScriptVideoReviewNodeState, type FrameScriptVideoSourceBinding } from "@/lib/framescript-video-review/contracts";
 import { confirmVideoReview, transcriptForRange } from "@/lib/plugins/video-review";
 import type { AnalysisResult } from "@/lib/plugins/video-plugin";
@@ -383,7 +383,7 @@ function FrameScriptReviewModal({ open, node, source, sourceRef, sourceBinding, 
         await addFrameScriptStoryboardNode(node, frames);
     };
 
-    return <AppModal open={open} onCancel={onClose} footer={null} width="min(1120px, calc(100vw - 32px))" centered flush title={null}>
+    return <Modal open={open} onCancel={onClose} footer={null} width="min(1120px, calc(100vw - 32px))" centered title={null}>
         <div className="flex max-h-[min(780px,calc(100vh-48px))] min-h-[560px] overflow-hidden bg-[#111315] text-white">
             <section className="flex min-w-0 flex-1 flex-col border-r border-white/10">
                 <header className="flex items-start justify-between gap-4 border-b border-white/10 px-6 py-5">
@@ -419,7 +419,7 @@ function FrameScriptReviewModal({ open, node, source, sourceRef, sourceBinding, 
                 {node.title ? <div className="mt-8 rounded-lg border border-white/8 bg-black/20 p-3 text-[11px] text-white/45">节点：{node.title}</div> : null}
             </aside>
         </div>
-    </AppModal>;
+    </Modal>;
 }
 
 function PrepareState({ source, busy, staleSource, onPrepare }: { source: CanvasNodeData; busy: boolean; staleSource: boolean; onPrepare: () => void }) {
