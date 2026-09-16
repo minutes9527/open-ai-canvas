@@ -1,31 +1,6 @@
 import { createContext, useContext } from "react";
 
 import type { CanvasNodeData, CanvasNodeMetadata } from "@/types/canvas";
-import type { FrameScriptOriginalAnalysis } from "@/lib/framescript-video-review/contracts";
-
-export type FrameScriptCanvasFrame = {
-    id: string;
-    index: number;
-    timeMs: number;
-    imageUrl: string;
-    sourceVideoId?: string;
-    reasons?: readonly string[];
-};
-
-export type FrameScriptCanvasStoryboardFrame = FrameScriptCanvasFrame & {
-    originalAnalysis?: FrameScriptOriginalAnalysis;
-    /** The duration represented by this shot in the generated storyboard. */
-    durationSeconds: number;
-    description?: string;
-    imageGenerationPrompt?: string;
-    videoMotionPrompt?: string;
-    dialogue?: string;
-    /** On-screen caption/text; never merge into imageGenerationPrompt. */
-    screenText?: string;
-    /** One pre-existing replacement asset; the extracted original frame is added separately. */
-    referenceNodeId?: string;
-    referenceNodeIds?: readonly string[];
-};
 
 // 批次子图操作条（下载/创建副本/删除）与主图位下载需要调用画布级动作，
 // 但画布节点经 CanvasProjectWorldLayers 渲染、不便逐个透传 handler，
@@ -47,14 +22,6 @@ export type CanvasNodeActionContextValue = {
     openPortraitClearance?: (node: CanvasNodeData) => void;
     /** 打开节点级 AI 审美批改报告。 */
     openArtCritique?: (node: CanvasNodeData) => void;
-    /** 全景节点导出截图：上传 dataUrl 并在源节点右侧创建派生图片节点。 */
-    addPanoramaCaptureNode?: (node: CanvasNodeData, dataUrl: string, title: string) => Promise<void> | void;
-    /** 将 FrameScript 人工确认的分镜帧持久化为独立图片节点。 */
-    addFrameScriptImageNodes?: (node: CanvasNodeData, frames: readonly FrameScriptCanvasFrame[]) => Promise<void> | void;
-    /** 将确认帧导出为轻量 FrameScript 分镜复刻节点，不复制完整分镜脚本能力。 */
-    addFrameScriptStoryboardNode?: (node: CanvasNodeData, frames: readonly FrameScriptCanvasStoryboardFrame[]) => Promise<void> | void;
-    /** 将轻量复刻节点的每个镜头导入为独立图片生成节点，不自动消耗生成额度。 */
-    createFrameScriptImageGenerationNodes?: (node: CanvasNodeData, frameId?: string) => Promise<void> | void;
 };
 
 export const CanvasNodeActionContext = createContext<CanvasNodeActionContextValue>({});
