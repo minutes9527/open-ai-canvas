@@ -1,6 +1,11 @@
-﻿# CHANGELOG
+# CHANGELOG
 
 ## Unreleased
+
+## v1.2.8-yc.3
+
+- 合并 FrameScript 视频复核插件：候选帧提取、人工确认、分镜复刻与受控素材引用。
+- FrameScript 语音转写改走关联系统渠道的 OpenAI 兼容 `/audio/transcriptions` 接口；百炼可配置 `qwen3-asr-flash`。
 
 ## v1.2.8-yc.2
 
