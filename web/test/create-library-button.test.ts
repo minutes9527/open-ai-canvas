@@ -32,7 +32,7 @@ describe("creation library button", () => {
         expect(dockSource).not.toContain('aria-label="从本机上传附件"');
         expect(source).toContain("onClick={props.onOpenLibrary}");
         expect(source).toContain("creation-reference-add-button");
-        expect(source).toContain('showSelectedPrice={false} showOptionPrices variant="creation"');
+        expect(compactSource(source)).toContain('showSelectedPrice={false} showOptionPrices variant="creation"');
         expect(source).toContain("canvas-node-composer-submit-cost");
     });
 
@@ -107,7 +107,7 @@ describe("creation library button", () => {
         expect(styles).toContain(".creation-reference-track.is-expanded");
         expect(styles).toContain(".creation-reference-stack-card:is(:hover, :focus-within) .creation-reference-card-content");
         expect(styles).toContain("@media (hover: none)");
-        expect(styles).toContain(".creation-reference-card-remove { opacity: 1; }");
+        expect(compactSource(styles)).toContain(".creation-reference-card-remove { opacity: 1; }");
         expect(styles).not.toContain(".creation-reference-track:not(.is-expanded) .creation-reference-stack-card:nth-child(n+5) { display: block; }");
         expect(source).toContain("isExpanded: true");
         expect(source).toContain("else if (!hadAttachments) setReferencePanelExpanded(true)");
@@ -119,7 +119,7 @@ describe("creation library button", () => {
         const createSource = readCreateWorkspaceSource();
 
         expect(assets).toContain("resolveResourceUrl(asset.data.storageKey");
-        expect(createSource).toContain("<CachedResourceImage storageKey={item.storageKey}");
+        expect(compactSource(createSource)).toContain("<CachedResourceImage storageKey={item.storageKey}");
         expect(createSource).toContain("resolveResourceUrl(item.storageKey, item.previewUrl)");
     });
 

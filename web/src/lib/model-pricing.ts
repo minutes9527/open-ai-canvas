@@ -118,14 +118,18 @@ function priceSelectorForRequest(capability: ModelCapability | undefined, config
     if (capability === "image") {
         requested.operation = imagePriceOperation(requirements);
         const options = { ...modelRequestOptions(config, "image"), ...requirements?.options, ...(requirements?.imageSize ? { size: requirements.imageSize } : {}) };
-        const imageQuality = String(options.quality ?? "").trim().toLowerCase();
+        const imageQuality = String(options.quality ?? "")
+            .trim()
+            .toLowerCase();
         const imageSize = String(options.size ?? "").trim();
         if ((imageQuality === "" || imageQuality === "auto" || imageQuality === "any") && imageSize) {
             const resolution = imageResolutionOption(buildImageResolutionOptions([imageSize]), imageSize)?.tier;
             if (resolution) requested.quality = resolution;
         }
         for (const key of ["quality", "size"] as const) {
-            const value = String(options[key] ?? "").trim().toLowerCase();
+            const value = String(options[key] ?? "")
+                .trim()
+                .toLowerCase();
             if (value && value !== "auto" && value !== "any" && !requested[key]) requested[key] = value;
         }
     }

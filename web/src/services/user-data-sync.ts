@@ -471,7 +471,12 @@ async function drainRemoteUserDataChanges() {
 async function saveRemoteUserDataBatch(uploaded: Map<string, string>) {
     // 中央兜底：任何调用方只要把持久媒体写进画布，提交前都会先补齐素材记录与 assetId。
     // 页面级入口仍主动入库，以便立即反馈；这里负责阻止遗漏入口形成远端幽灵资源。
-    const changedProjectIds = new Set(useCanvasStore.getState().projects.filter((project) => !sameEntitySnapshot(acknowledgedProjects.get(project.id), project)).map((project) => project.id));
+    const changedProjectIds = new Set(
+        useCanvasStore
+            .getState()
+            .projects.filter((project) => !sameEntitySnapshot(acknowledgedProjects.get(project.id), project))
+            .map((project) => project.id),
+    );
     repairMissingCanvasAssets(incrementalSession ? changedProjectIds : undefined, incrementalSession);
     const currentProjects = useCanvasStore.getState().projects;
     const currentAssets = useAssetStore.getState().assets;

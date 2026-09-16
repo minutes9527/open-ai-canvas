@@ -60,12 +60,13 @@ export default function CanvasPage() {
         queryKey: ["canvas-library", userId, projectFilter, sort, debouncedKeyword],
         queryFn: ({ pageParam, signal }) => listRemoteCanvasProjectsPage({ page: pageParam, pageSize: 40, projectId: projectFilter, sort, query: debouncedKeyword, signal }),
         initialPageParam: 1,
-        getNextPageParam: (last) => last.hasMore ? last.page + 1 : undefined,
+        getNextPageParam: (last) => (last.hasMore ? last.page + 1 : undefined),
         enabled: Boolean(userId) && sessionHydrated,
     });
-    const projects = useMemo<CanvasLibrarySummary[]>(() => userId
-        ? libraryQuery.data?.pages.flatMap((page) => page.projects) || []
-        : localProjects.map((project) => ({ ...project, nodeCount: project.nodes.length, previewNodes: project.nodes.slice(0, 4) })), [libraryQuery.data, localProjects, userId]);
+    const projects = useMemo<CanvasLibrarySummary[]>(
+        () => (userId ? libraryQuery.data?.pages.flatMap((page) => page.projects) || [] : localProjects.map((project) => ({ ...project, nodeCount: project.nodes.length, previewNodes: project.nodes.slice(0, 4) }))),
+        [libraryQuery.data, localProjects, userId],
+    );
     const totalProjects = userId ? libraryQuery.data?.pages[0]?.total || 0 : projects.length;
     const importProject = useCanvasStore((state) => state.importProject);
     const selectedIds = useCanvasUiStore((state) => state.selectedProjectIds);
@@ -160,7 +161,9 @@ export default function CanvasPage() {
                 selected.push(project);
             }
             await exportCanvasProjects(selected, `${brandName}画布-${selected.length}个画布`);
-        } catch (error) { message.error(error instanceof Error ? error.message : "导出失败"); }
+        } catch (error) {
+            message.error(error instanceof Error ? error.message : "导出失败");
+        }
     };
     const importCanvas = async (file?: File) => {
         if (!file) return;
@@ -550,7 +553,9 @@ export default function CanvasPage() {
                 ) : null}
 
                 {userId && libraryQuery.isError ? (
-                    <div role="alert">画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button></div>
+                    <div role="alert">
+                        画布列表读取失败<Button onClick={() => void libraryQuery.refetch()}>重试</Button>
+                    </div>
                 ) : !hydrated || (userId && libraryQuery.isPending) ? (
                     <WorkspaceLoadingState label="正在恢复画布" detail="读取本地缓存与账号同步状态" />
                 ) : showCreateCard || visibleProjects.length ? (
@@ -597,7 +602,11 @@ export default function CanvasPage() {
                 />
             </Modal>
             <CanvasHistoryDrawer open={historyOpen} onClose={() => setHistoryOpen(false)} />
-            {deleteDialogOpen ? <Suspense fallback={null}><CanvasDeleteProjectsDialog /></Suspense> : null}
+            {deleteDialogOpen ? (
+                <Suspense fallback={null}>
+                    <CanvasDeleteProjectsDialog />
+                </Suspense>
+            ) : null}
         </WorkspacePage>
     );
 }

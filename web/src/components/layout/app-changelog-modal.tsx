@@ -26,7 +26,11 @@ export function AppChangelogButton({ className, style, showVersion = false, show
                 {showLabel ? <span className={`whitespace-nowrap ${labelClassName || ""}`}>{label}</span> : null}
                 {showVersion ? <span className={versionClassName}>v{APP_VERSION.replace(/^v/, "")}</span> : null}
             </button>
-            {open ? <Suspense fallback={null}><AppChangelogDialog open onClose={() => setOpen(false)} /></Suspense> : null}
+            {open ? (
+                <Suspense fallback={null}>
+                    <AppChangelogDialog open onClose={() => setOpen(false)} />
+                </Suspense>
+            ) : null}
         </>
     );
 }

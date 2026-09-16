@@ -138,13 +138,13 @@ func (r *Repository) ExportAPICallLogs(filter APICallLogFilter, limit int) ([]mo
 }
 
 func (r *Repository) filteredAPICallLogQuery(filter APICallLogFilter) *gorm.DB {
-	query := r.apiCallLogQuery(filter.AnalyticsFilter)
+	query := visibleAPICallLogQuery(r.apiCallLogQuery(filter.AnalyticsFilter))
 	switch filter.RecordType {
 	case "download":
 		query = query.Where("api_call_logs.request_kind = ?", "download")
 	case "all":
 	default:
-		query = visibleAPICallLogQuery(query).Where("COALESCE(api_call_logs.request_kind, '') <> ?", "download")
+		query = query.Where("COALESCE(api_call_logs.request_kind, '') <> ?", "download")
 	}
 	if value := strings.TrimSpace(filter.Keyword); value != "" {
 		pattern := "%" + strings.ToLower(value) + "%"

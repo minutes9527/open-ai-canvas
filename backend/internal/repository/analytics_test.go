@@ -41,7 +41,7 @@ func TestAPICallLogRecordTypeFiltersListAndExport(t *testing.T) {
 	for _, tc := range []struct {
 		kind  string
 		count int
-	}{{"", 1}, {"request", 1}, {"download", 2}, {"all", 4}} {
+	}{{"", 1}, {"request", 1}, {"download", 2}, {"all", 3}} {
 		filter := APICallLogFilter{AnalyticsFilter: AnalyticsFilter{From: now.Add(-time.Hour), To: now.Add(time.Hour)}, RecordType: tc.kind}
 		logs, total, err := repo.QueryAPICallLogs(filter)
 		if err != nil {
@@ -174,6 +174,7 @@ func TestQueryAPICallLogsHidesInternalPollStages(t *testing.T) {
 
 	items, total, err := New(db).QueryAPICallLogs(APICallLogFilter{
 		AnalyticsFilter: AnalyticsFilter{From: now.Add(-time.Hour), To: now.Add(time.Hour)},
+		RecordType:      "all",
 		Page:            1,
 		Limit:           20,
 	})

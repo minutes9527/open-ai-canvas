@@ -46,14 +46,16 @@ export function createCanvasSelectionSpatialIndexCache(): CanvasSelectionSpatial
         get(nodes) {
             if (source === nodes) return index;
             const nodeById = new Map(nodes.map((node) => [node.id, node]));
-            const hiddenBatchChildIds = new Set(nodes.flatMap((node) => {
-                const rootId = node.metadata?.batchRootId;
-                const root = rootId ? nodeById.get(rootId) : undefined;
-                return root && !root.metadata?.imageBatchExpanded ? [node.id] : [];
-            }));
-            index = buildCanvasSpatialIndex(nodes
-                .filter((node) => !hiddenBatchChildIds.has(node.id) && !(node.parentId && nodeById.get(node.parentId)?.metadata?.frame?.collapsed))
-                .map((node) => ({ id: node.id, bounds: canvasNodeBounds(node), value: node })));
+            const hiddenBatchChildIds = new Set(
+                nodes.flatMap((node) => {
+                    const rootId = node.metadata?.batchRootId;
+                    const root = rootId ? nodeById.get(rootId) : undefined;
+                    return root && !root.metadata?.imageBatchExpanded ? [node.id] : [];
+                }),
+            );
+            index = buildCanvasSpatialIndex(
+                nodes.filter((node) => !hiddenBatchChildIds.has(node.id) && !(node.parentId && nodeById.get(node.parentId)?.metadata?.frame?.collapsed)).map((node) => ({ id: node.id, bounds: canvasNodeBounds(node), value: node })),
+            );
             source = nodes;
             return index;
         },
@@ -82,15 +84,9 @@ export function createCanvasSelectionBounds(startWorldX: number, startWorldY: nu
 
 export function canvasSelectionHitsBounds(selectionBounds: CanvasSpatialBounds, nodeBounds: CanvasSpatialBounds, hitMode: CanvasSelectionHitMode): boolean {
     if (hitMode === "contain") {
-        return nodeBounds.left >= selectionBounds.left
-            && nodeBounds.top >= selectionBounds.top
-            && nodeBounds.right <= selectionBounds.right
-            && nodeBounds.bottom <= selectionBounds.bottom;
+        return nodeBounds.left >= selectionBounds.left && nodeBounds.top >= selectionBounds.top && nodeBounds.right <= selectionBounds.right && nodeBounds.bottom <= selectionBounds.bottom;
     }
-    return nodeBounds.right > selectionBounds.left
-        && nodeBounds.left < selectionBounds.right
-        && nodeBounds.bottom > selectionBounds.top
-        && nodeBounds.top < selectionBounds.bottom;
+    return nodeBounds.right > selectionBounds.left && nodeBounds.left < selectionBounds.right && nodeBounds.bottom > selectionBounds.top && nodeBounds.top < selectionBounds.bottom;
 }
 
 export function applyCanvasSelectionStrategy(initialSelection: Iterable<string>, hitNodeIds: Iterable<string>, strategy: CanvasSelectionStrategy): Set<string> {

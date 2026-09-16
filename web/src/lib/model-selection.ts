@@ -1,7 +1,7 @@
 import { defaultImageCapabilityConfig, modelCapabilityConfigFor, normalizeImageValue, normalizeVideoValue, STANDARD_IMAGE_SIZE_VALUES, videoDurationAllowed, type ImageCapabilityConfig } from "@/lib/model-capabilities";
 import { videoResolutionComparisonKey } from "@/lib/video-generation-options";
+import { configuredLocalModelDisplayName, modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 import { imageSizePresets } from "@/lib/image-size-presets";
-import { modelOptionName, resolveModelChannel, selectableModelsByCapability, type AiConfig, type ModelCapability } from "@/stores/use-config-store";
 
 export type ModelInputSummary = {
     textCount: number;
@@ -48,7 +48,7 @@ export function groupModelsByDisplayName(config: AiConfig, models: string[]): Di
 export function configuredModelDisplayName(config: AiConfig, value: string) {
     const model = modelOptionName(value);
     const channel = resolveModelChannel(config, value);
-    return channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim() || model;
+    return channel.modelCosts?.find((item) => item.model === model)?.displayName?.trim() || configuredLocalModelDisplayName(channel, model) || model;
 }
 
 export function modelCompatibilityError(config: AiConfig, model: string, requirements?: ModelRequirements) {
@@ -247,7 +247,6 @@ export function defaultImageParamsForModel(config: AiConfig, model: string): Pic
     };
 }
 
-
 export type ModelGenerationDefaults = Pick<AiConfig, "size" | "quality" | "transparentBackground" | "count" | "videoSeconds" | "vquality" | "videoGenerateAudio" | "videoWatermark">;
 
 type ModelVideoBooleanOptions = Pick<AiConfig, "videoGenerateAudio" | "videoWatermark">;
@@ -298,17 +297,12 @@ export function resolveModelGenerationDefaults(
     return {};
 }
 
-export function resolveModelVideoBooleanOptions(
-    config: AiConfig,
-    model: string,
-    explicit: Partial<ModelVideoBooleanOptions> = {},
-    fallback: Partial<ModelVideoBooleanOptions> = {},
-): ModelVideoBooleanOptions {
+export function resolveModelVideoBooleanOptions(config: AiConfig, model: string, explicit: Partial<ModelVideoBooleanOptions> = {}, fallback: Partial<ModelVideoBooleanOptions> = {}): ModelVideoBooleanOptions {
     const profile = modelCapabilityConfigFor(config, model).video!;
     const defaults = resolveModelGenerationDefaults(config, model, "video", explicit, fallback);
     return {
-        videoGenerateAudio: profile.generateAudio.supported ? defaults.videoGenerateAudio ?? String(profile.generateAudio.default) : "false",
-        videoWatermark: profile.watermark.supported ? defaults.videoWatermark ?? String(profile.watermark.default) : "false",
+        videoGenerateAudio: profile.generateAudio.supported ? (defaults.videoGenerateAudio ?? String(profile.generateAudio.default)) : "false",
+        videoWatermark: profile.watermark.supported ? (defaults.videoWatermark ?? String(profile.watermark.default)) : "false",
     };
 }
 

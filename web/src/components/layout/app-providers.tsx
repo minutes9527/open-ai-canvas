@@ -18,7 +18,11 @@ const ClientRootInit = lazy(() => import("@/components/layout/client-root-init")
 function ClientRootBoundary({ children }: { children: ReactNode }) {
     const authenticated = useUserStore((state) => Boolean(state.user));
     if (!authenticated) return children;
-    return <Suspense fallback={<FullScreenLoader label="正在准备创作环境" detail="连接本地能力与模型配置" />}><ClientRootInit>{children}</ClientRootInit></Suspense>;
+    return (
+        <Suspense fallback={<FullScreenLoader label="正在准备创作环境" detail="连接本地能力与模型配置" />}>
+            <ClientRootInit>{children}</ClientRootInit>
+        </Suspense>
+    );
 }
 
 export function AppProviders({ children }: { children: ReactNode }) {

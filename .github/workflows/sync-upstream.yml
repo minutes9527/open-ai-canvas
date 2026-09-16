@@ -1,0 +1,99 @@
+name: Sync upstream development
+
+on:
+  schedule:
+    - cron: "23 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  actions: write
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    name: Open upstream sync pull request
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout fork
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream
+        shell: bash
+        run: |
+          git remote add upstream https://github.com/ddcat-ai/open-ai-canvas.git
+          git fetch upstream main --tags
+
+      - name: Merge upstream into sync branch
+        id: merge
+        shell: bash
+        run: |
+          branch="sync/upstream-main"
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "Fork main already contains upstream/main." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          if git show-ref --verify --quiet "refs/remotes/origin/$branch" \
+            && git merge-base --is-ancestor origin/main "origin/$branch" \
+            && git merge-base --is-ancestor upstream/main "origin/$branch"; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "The existing upstream sync branch is already current." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --create "$branch" origin/main
+
+          if ! git merge --no-ff upstream/main -m "chore(sync): 合并上游 main 开发更新"; then
+            conflicts="$(git diff --name-only --diff-filter=U)"
+            git merge --abort
+            {
+              echo "## Upstream sync needs manual conflict resolution"
+              echo
+              echo '```text'
+              printf '%s\n' "$conflicts"
+              echo '```'
+            } >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+          git push --force-with-lease origin "HEAD:refs/heads/$branch"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+          echo "branch=$branch" >> "$GITHUB_OUTPUT"
+
+      - name: Create or update pull request
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+        shell: bash
+        run: |
+          existing="$(gh pr list --base main --head "$SYNC_BRANCH" --state open --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing" ]]; then
+            echo "Updated existing pull request #$existing." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          gh pr create \
+            --base main \
+            --head "$SYNC_BRANCH" \
+            --title "chore(sync): 同步 ddcat-ai 上游开发更新" \
+            --body "由定时同步流程创建。请等待 CI 通过，并检查数据库迁移、画布、模型渠道、插件与部署配置后再合并。"
+
+      # GITHUB_TOKEN 创建的 PR 不会再次触发 pull_request 工作流，因此显式在同步分支上启动同一套质量检查。
+      - name: Dispatch quality checks
+        if: steps.merge.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SYNC_BRANCH: ${{ steps.merge.outputs.branch }}
+        shell: bash
+        run: gh workflow run quality.yml --ref "$SYNC_BRANCH"
