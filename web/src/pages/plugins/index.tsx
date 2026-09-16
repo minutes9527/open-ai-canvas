@@ -336,6 +336,26 @@ export default function PluginsPage() {
         message.success("Eagle 插件配置已保存");
     };
 
+    const saveFrameScriptConfig = () => {
+        if (!frameScriptChannelId) {
+            message.error("请先选择 FrameScript 使用的系统渠道");
+            return;
+        }
+        if (!frameScriptVisionModel || !frameScriptPromptModel || !frameScriptTranscriptionModel) {
+            message.error("请为画面分析、提示词和语音转写分别选择模型");
+            return;
+        }
+        updateConfig(FRAMESCRIPT_VIDEO_ENGINE_ID, {
+            channelId: frameScriptChannelId,
+            visionModel: frameScriptVisionModel,
+            promptModel: frameScriptPromptModel,
+            transcriptionModel: frameScriptTranscriptionModel,
+            changeThreshold: frameScriptChangeThreshold,
+            samplingIntervalMs: frameScriptSamplingIntervalMs,
+        });
+        message.success("FrameScript 系统渠道与模型已保存");
+    };
+
     return (
         <main className="app-workspace-page plugins-page flex h-full min-h-0 flex-col text-foreground">
             <div className="app-workspace-scroll min-h-0 flex-1 overflow-y-auto">
@@ -655,6 +675,57 @@ export default function PluginsPage() {
                                                 </Button>
                                                 <Button icon={<ExternalLink className="size-4" />} href="https://api.eagle.cool/" target="_blank">
                                                     查看 API
+                                                </Button>
+                                            </div>
+                                        </>
+                                    ) : settingsPlugin.manifest.id === FRAMESCRIPT_VIDEO_ENGINE_ID ? (
+                                        <>
+                                            <div className="plugin-settings-fields">
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-channel">关联系统渠道</label>
+                                                    <Select
+                                                        id="framescript-channel"
+                                                        aria-label="FrameScript 关联系统渠道"
+                                                        className="w-full"
+                                                        loading={frameScriptChannelsLoading}
+                                                        value={frameScriptChannelId || undefined}
+                                                        placeholder="选择已启用的系统渠道"
+                                                        options={frameScriptChannels.map((channel) => ({ value: channel.id, label: channel.name || channel.id }))}
+                                                        onChange={(channelId) => {
+                                                            const channel = frameScriptChannels.find((item) => item.id === channelId);
+                                                            const models = channel?.models.map((model) => modelOptionName(model).trim()).filter(Boolean) || [];
+                                                            setFrameScriptChannelId(channelId);
+                                                            setFrameScriptVisionModel(models.includes(frameScriptVisionModel) ? frameScriptVisionModel : models[0] || "");
+                                                            setFrameScriptPromptModel(models.includes(frameScriptPromptModel) ? frameScriptPromptModel : models[0] || "");
+                                                            setFrameScriptTranscriptionModel(models.includes(frameScriptTranscriptionModel) ? frameScriptTranscriptionModel : models[0] || "");
+                                                        }}
+                                                    />
+                                                    <p>模型请求将统一经此渠道执行；密钥继续只保存在系统渠道中。</p>
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-vision-model">画面分析模型</label>
+                                                    <Select id="framescript-vision-model" aria-label="FrameScript 画面分析模型" className="w-full" value={frameScriptVisionModel || undefined} placeholder="选择视觉模型" options={frameScriptModelOptions} onChange={setFrameScriptVisionModel} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-prompt-model">图片提示词模型</label>
+                                                    <Select id="framescript-prompt-model" aria-label="FrameScript 图片提示词模型" className="w-full" value={frameScriptPromptModel || undefined} placeholder="选择文本或视觉模型" options={frameScriptModelOptions} onChange={setFrameScriptPromptModel} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-transcription-model">语音转写模型</label>
+                                                    <Select id="framescript-transcription-model" aria-label="FrameScript 语音转写模型" className="w-full" value={frameScriptTranscriptionModel || undefined} placeholder="选择支持转写的模型" options={frameScriptModelOptions} onChange={setFrameScriptTranscriptionModel} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-threshold">候选帧变化阈值</label>
+                                                    <Input id="framescript-threshold" aria-label="候选帧变化阈值" type="number" min="0.01" max="1" step="0.01" value={frameScriptChangeThreshold} onChange={(event) => setFrameScriptChangeThreshold(Math.min(1, Math.max(0.01, Number(event.target.value) || 0.32)))} />
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <label htmlFor="framescript-interval">扫描间隔（毫秒）</label>
+                                                    <Input id="framescript-interval" aria-label="扫描间隔（毫秒）" type="number" min="100" max="2000" step="50" value={frameScriptSamplingIntervalMs} onChange={(event) => setFrameScriptSamplingIntervalMs(Math.min(2000, Math.max(100, Number(event.target.value) || 400)))} />
+                                                </div>
+                                            </div>
+                                            <div className="plugin-settings-actions">
+                                                <Button type="primary" icon={<CheckCircle2 className="size-4" />} onClick={saveFrameScriptConfig}>
+                                                    保存 FrameScript 配置
                                                 </Button>
                                             </div>
                                         </>
