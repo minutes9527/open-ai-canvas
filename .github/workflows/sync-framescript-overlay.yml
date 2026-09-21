@@ -1,0 +1,37 @@
+name: Sync main into FrameScript overlay
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "15 3 * * *"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: framescript-overlay-sync
+  cancel-in-progress: false
+
+jobs:
+  sync-main:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout overlay branch
+        uses: actions/checkout@v4
+        with:
+          ref: codex/framescript-dreamina
+          fetch-depth: 0
+
+      - name: Merge repository main
+        run: |
+          git fetch origin main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git merge --no-edit origin/main; then
+            git merge --abort || true
+            echo "::error::main conflicts with the overlay; resolve manually."
+            exit 1
+          fi
+
+      - name: Push synced overlay
+        run: git push origin HEAD:codex/framescript-dreamina
